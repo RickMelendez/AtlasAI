@@ -344,9 +344,8 @@ class WebSocketManager:
                 ),
             )
 
-            # Arranca loops en background
-            asyncio.create_task(self.wake_word_loop(session_id))
-            asyncio.create_task(self.screen_monitor_loop(session_id))
+            # Arranca loop principal en background
+            asyncio.create_task(self.handle_messages(session_id))
 
             logger.info(f"[{session_id}] Continuous loops started")
 
@@ -364,6 +363,12 @@ class WebSocketManager:
         self.assistant_states.pop(session_id, None)
         self.running_loops.pop(session_id, None)
         self.screen_contexts.pop(session_id, None)
+        # Limpiar contexto de Playwright para esta sesión
+        if self._tool_executor and hasattr(self._tool_executor, '_browser') and self._tool_executor._browser:
+            try:
+                self._tool_executor._browser.close_session(session_id)
+            except Exception as e:
+                logger.warning(f"[{session_id}] Playwright cleanup error: {e}")
         logger.info(f"[{session_id}] WebSocket disconnected")
 
     # ── Sending ───────────────────────────────────────────────────────────────
@@ -388,7 +393,7 @@ class WebSocketManager:
 
     # ── Main loop ─────────────────────────────────────────────────────────────
 
-    async def wake_word_loop(self, session_id: str) -> None:
+    async def handle_messages(self, session_id: str) -> None:
         """
         Loop principal que escucha todos los mensajes del frontend.
 
@@ -399,7 +404,7 @@ class WebSocketManager:
         - screen_capture → OCR + análisis de pantalla
         - ping           → keepalive
         """
-        logger.info(f"[{session_id}] Wake word loop started")
+        logger.info(f"[{session_id}] Message handler loop started")
 
         # Porcupine adapter para esta sesión (lazy init — solo si hay access key)
         porcupine = None
@@ -541,7 +546,7 @@ class WebSocketManager:
 
             except Exception as e:
                 logger.error(f"[{session_id}] Loop error: {e}", exc_info=True)
-                sentry_capture(e, session_id=session_id, context="wake_word_loop")
+                sentry_capture(e, session_id=session_id, context="handle_messages")
                 await asyncio.sleep(1)
 
         # Cleanup Porcupine if running
@@ -551,7 +556,7 @@ class WebSocketManager:
             except Exception:
                 pass
 
-        logger.info(f"[{session_id}] Wake word loop stopped")
+        logger.info(f"[{session_id}] Message handler loop stopped")
 
     async def _handle_audio_chunk(
         self,
@@ -727,7 +732,7 @@ class WebSocketManager:
         """
         Ejecuta Whisper → Claude → ElevenLabs en background.
 
-        Al no bloquear wake_word_loop, el WebSocket sigue respondiendo a pings
+        Al no bloquear handle_messages, el WebSocket sigue respondiendo a pings
         durante todo el procesamiento, evitando desconexiones 1011.
         """
         self._voice_busy[session_id] = True
@@ -913,27 +918,6 @@ class WebSocketManager:
             if state and state.mode != AssistantMode.ACTIVE:
                 state.reset_to_active()
                 logger.debug(f"[{session_id}] Force-reset state to ACTIVE after voice pipeline")
-
-    # ── Screen monitor ────────────────────────────────────────────────────────
-
-    async def screen_monitor_loop(self, session_id: str) -> None:
-        """
-        Loop secundario que monitorea el estado de la pantalla.
-
-        Solo activo cuando el asistente está en modo ACTIVE.
-        Los frames llegan via WebSocket (screen_capture), este loop
-        simplemente mantiene el estado y hace logging.
-        """
-        logger.info(f"[{session_id}] Screen monitor loop started")
-
-        while self.running_loops.get(session_id, False):
-            try:
-                await asyncio.sleep(3)
-            except Exception as e:
-                logger.error(f"[{session_id}] Screen monitor error: {e}", exc_info=True)
-                await asyncio.sleep(3)
-
-        logger.info(f"[{session_id}] Screen monitor loop stopped")
 
     # ── State management ──────────────────────────────────────────────────────
 

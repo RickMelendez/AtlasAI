@@ -61,6 +61,12 @@ async def lifespan(app: FastAPI):
     from src.infrastructure.events.event_types import EventType
     from src.infrastructure.websocket.manager import ws_manager
 
+    from src.domain.entities.conversation import Conversation
+    from src.domain.entities.message import Message, MessageRole
+    from src.infrastructure.database import AsyncSessionFactory
+    from src.infrastructure.database.repositories.conversation_repository import \
+        SQLiteConversationRepository
+
     # Inicializar servicios
     claude_service = ClaudeAdapter()
     chat_use_case = ProcessChatMessageUseCase(claude_service)
@@ -82,8 +88,59 @@ async def lifespan(app: FastAPI):
             logger.warning(f"No state found for session {session_id}")
             return
 
-        # Procesar mensaje y generar respuesta (con contexto de pantalla si existe)
-        result = await chat_use_case.execute(message, state, screen_context=screen_context)
+        # Cargar historial de conversación desde la BD (per-session)
+        conversation_history = None
+        try:
+            async with AsyncSessionFactory() as session:
+                async with session.begin():
+                    repo = SQLiteConversationRepository(session)
+                    conversation = await repo.get_active_conversation_by_session(session_id)
+                    if conversation:
+                        db_messages = await repo.get_last_n_messages(conversation.id, n=10)
+                        conversation_history = [msg.to_claude_format() for msg in db_messages]
+                        logger.info(
+                            f"[{session_id}] Loaded {len(conversation_history)} messages from DB"
+                        )
+        except Exception as db_err:
+            logger.error(f"[{session_id}] DB history load error: {db_err}", exc_info=True)
+            # No fallar el request por un error de BD — continuar sin historial
+
+        # Procesar mensaje y generar respuesta (con contexto de pantalla e historial)
+        result = await chat_use_case.execute(
+            message, state, screen_context=screen_context, conversation_history=conversation_history
+        )
+
+        # Persistir intercambio en la BD
+        if result and not result.get("error"):
+            try:
+                async with AsyncSessionFactory() as session:
+                    async with session.begin():
+                        repo = SQLiteConversationRepository(session)
+                        # Obtener o crear conversación
+                        conv = await repo.get_active_conversation_by_session(session_id)
+                        if not conv:
+                            conv = Conversation(session_id=session_id, language="es")
+                            await repo.create_conversation(conv)
+                        # Guardar mensaje del usuario
+                        user_msg = Message(
+                            conversation_id=conv.id,
+                            role=MessageRole.USER,
+                            content=message,
+                        )
+                        await repo.add_message(user_msg)
+                        # Guardar respuesta del asistente
+                        assistant_msg = Message(
+                            conversation_id=conv.id,
+                            role=MessageRole.ASSISTANT,
+                            content=result["response"],
+                        )
+                        await repo.add_message(assistant_msg)
+                        conv.touch()
+                        await repo.update_conversation(conv)
+                        logger.info(f"[{session_id}] Persisted exchange to DB (conv={conv.id})")
+            except Exception as db_err:
+                logger.error(f"[{session_id}] DB persistence error: {db_err}", exc_info=True)
+                # No fallar el request por un error de BD — el usuario recibió su respuesta
 
         # Enviar screenshots de herramientas al frontend (si los hay)
         screenshots = getattr(claude_service, "_last_tool_screenshots", [])

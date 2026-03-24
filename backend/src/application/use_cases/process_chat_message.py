@@ -43,6 +43,7 @@ class ProcessChatMessageUseCase:
         message: str,
         assistant_state: AssistantState,
         screen_context: Optional[str] = None,
+        conversation_history: Optional[list] = None,
     ) -> ChatMessageResult:
         """
         Procesa un mensaje de chat y genera una respuesta.
@@ -68,6 +69,7 @@ class ProcessChatMessageUseCase:
             # Generar respuesta con Claude (con herramientas si están disponibles)
             response = await self.ai_service.generate_response(
                 user_message=message,
+                conversation_history=conversation_history,
                 screen_context=screen_context,
                 language=assistant_state.language,
                 tool_executor=self.tool_executor,
