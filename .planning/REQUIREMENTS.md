@@ -45,14 +45,14 @@ These requirements are met by existing code and are included for traceability.
 - [x] **AI-06**: Tool screenshots forwarded to frontend as tool_screenshot events
 - [x] **AI-07**: Exponential backoff retry on Claude 529 overloaded errors
 - [x] **AI-08**: Language-aware system prompts (EN/ES auto-detected per message)
-- [ ] **AI-09**: Conversation history persisted to SQLite DB across sessions
+- [x] **AI-09**: Conversation history persisted to SQLite DB across sessions
 
 ### Persistence
 
 - [x] **PERS-01**: SQLite DB with async SQLAlchemy (Conversation, Message, ScreenContext models)
 - [x] **PERS-02**: DB auto-initialized on backend startup (CREATE TABLE IF NOT EXISTS)
-- [ ] **PERS-03**: Conversation history saved to DB after each exchange
-- [ ] **PERS-04**: Session restore: reconnecting client loads last N messages from DB
+- [x] **PERS-03**: Conversation history saved to DB after each exchange
+- [x] **PERS-04**: Session restore: reconnecting client loads last N messages from DB
 - [ ] **PERS-05**: Long-term memory: semantic search across past conversations
 
 ### Testing
@@ -74,8 +74,8 @@ These requirements are met by existing code and are included for traceability.
 ### Infrastructure Fixes
 
 - [x] **INFRA-01**: Fix port discrepancy — frontend WebSocket URL must match backend port (8000 vs 8001)
-- [ ] **INFRA-02**: Playwright browser context cleanup on session disconnect
-- [ ] **INFRA-03**: Rename wake_word_loop → handle_messages for clarity
+- [x] **INFRA-02**: Playwright browser context cleanup on session disconnect
+- [x] **INFRA-03**: Rename wake_word_loop → handle_messages for clarity
 - [ ] **INFRA-04**: Multi-monitor: detect available screens, capture specific monitor
 
 ## v2 Requirements
@@ -123,9 +123,12 @@ These requirements are met by existing code and are included for traceability.
 | UX-03 | Phase TBD | Pending |
 | UX-04 | Phase TBD | Pending |
 | UX-05 | Phase TBD | Pending |
+| AI-09 | Phase 1, Plan 02 | Complete (2026-03-24) |
+| PERS-03 | Phase 1, Plan 02 | Complete (2026-03-24) |
+| PERS-04 | Phase 1, Plan 02 | Complete (2026-03-24) |
 | INFRA-01 | Phase 1, Plan 01 | Complete (2026-03-24) |
-| INFRA-02 | Phase TBD | Pending |
-| INFRA-03 | Phase TBD | Pending |
+| INFRA-02 | Phase 1, Plan 03 | Complete (2026-03-24) |
+| INFRA-03 | Phase 1, Plan 03 | Complete (2026-03-24) |
 | INFRA-04 | Phase TBD | Pending |
 
 **Coverage:**
@@ -135,4 +138,4 @@ These requirements are met by existing code and are included for traceability.
 
 ---
 *Requirements defined: 2026-03-23*
-*Last updated: 2026-03-24 — INFRA-01 marked complete (Phase 1 Plan 01)*
+*Last updated: 2026-03-24 — AI-09, PERS-03, PERS-04 marked complete (Phase 1 Plan 02); INFRA-02, INFRA-03 marked complete (Phase 1 Plan 03)*

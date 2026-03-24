@@ -64,7 +64,7 @@ Each task was committed atomically:
 
 1. **Task 1: Fix WebSocket port 8001 to 8000** - `9139b56` (fix)
 
-**Plan metadata:** _(docs commit hash to follow)_
+**Plan metadata:** `c855d44` (docs: complete Fix WebSocket Port plan)
 
 ## Files Created/Modified
 

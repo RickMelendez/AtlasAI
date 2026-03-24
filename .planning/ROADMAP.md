@@ -22,8 +22,8 @@
 
 Plans:
 - [x] 01-01-PLAN.md — Fix WebSocket port 8001→8000 in websocket.ts (commit 9139b56, 2026-03-24)
-- [ ] 01-02-PLAN.md — Wire DB persistence into text chat path (main.py)
-- [ ] 01-03-PLAN.md — manager.py: Playwright cleanup + rename loop + remove no-op + voice persistence
+- [x] 01-02-PLAN.md — Wire DB persistence into text chat path (commit e9ae126, 2026-03-24)
+- [x] 01-03-PLAN.md — manager.py: Playwright cleanup + rename loop + remove no-op + voice persistence (commits e9ae126, 3b39f02, 2026-03-24)
 
 **Success criteria:**
 - Frontend "connected" dot goes green immediately
