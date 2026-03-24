@@ -33,6 +33,11 @@ from typing import TYPE_CHECKING, Dict, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 
 from src.domain.entities.assistant_state import AssistantMode, AssistantState
+from src.domain.entities.conversation import Conversation
+from src.domain.entities.message import Message, MessageRole
+from src.infrastructure.database import AsyncSessionFactory
+from src.infrastructure.database.repositories.conversation_repository import \
+    SQLiteConversationRepository
 from src.infrastructure.events.event_bus import event_bus
 from src.infrastructure.events.event_types import EventType
 from src.infrastructure.monitoring.sentry import \
@@ -864,6 +869,37 @@ class WebSocketManager:
                         logger.info(f"[{session_id}] 🔊 TTS audio sent (ElevenLabs)")
                     else:
                         logger.info(f"[{session_id}] 🔊 TTS text sent (fallback)")
+
+                    # ── Persistir intercambio de voz en la BD ─────────────────────
+                    try:
+                        async with AsyncSessionFactory() as session:
+                            async with session.begin():
+                                repo = SQLiteConversationRepository(session)
+                                conversation = await repo.get_active_conversation_by_session(session_id)
+                                if not conversation:
+                                    lang = state.language if state else "es"
+                                    conversation = Conversation(session_id=session_id, language=lang)
+                                    await repo.create_conversation(conversation)
+                                # Guardar transcripción del usuario
+                                user_msg = Message(
+                                    conversation_id=conversation.id,
+                                    role=MessageRole.USER,
+                                    content=transcription,
+                                )
+                                await repo.add_message(user_msg)
+                                # Guardar respuesta del asistente
+                                assistant_msg = Message(
+                                    conversation_id=conversation.id,
+                                    role=MessageRole.ASSISTANT,
+                                    content=result["response"],
+                                )
+                                await repo.add_message(assistant_msg)
+                                conversation.touch()
+                                await repo.update_conversation(conversation)
+                        logger.info(f"[{session_id}] Voice exchange persisted to DB")
+                    except Exception as db_err:
+                        logger.error(f"[{session_id}] Voice DB persistence error: {db_err}", exc_info=True)
+                        # No fallar el pipeline por error de BD — TTS ya fue enviado
 
                 else:
                     await self.send_event(
