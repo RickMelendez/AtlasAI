@@ -31,9 +31,9 @@ class WebSocketService {
   /**
    * Constructor del WebSocketService.
    *
-   * @param url - URL del endpoint WebSocket (default: ws://localhost:8001/api/ws)
+   * @param url - URL del endpoint WebSocket (default: ws://localhost:8000/api/ws)
    */
-  constructor(url: string = 'ws://localhost:8001/api/ws') {
+  constructor(url: string = 'ws://localhost:8000/api/ws') {
     this.url = url;
     console.log('[WebSocket] Service initialized with URL:', this.url);
   }
