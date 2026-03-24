@@ -21,7 +21,7 @@
 **Plans:** 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Fix WebSocket port 8001→8000 in websocket.ts
+- [x] 01-01-PLAN.md — Fix WebSocket port 8001→8000 in websocket.ts (commit 9139b56, 2026-03-24)
 - [ ] 01-02-PLAN.md — Wire DB persistence into text chat path (main.py)
 - [ ] 01-03-PLAN.md — manager.py: Playwright cleanup + rename loop + remove no-op + voice persistence
 

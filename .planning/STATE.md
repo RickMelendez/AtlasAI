@@ -2,8 +2,8 @@
 
 **Last updated:** 2026-03-24
 **Current milestone:** Milestone 1 — Atlas v1.0 MVP
-**Active phase:** Phase 1 not started
-**Status:** 🟡 Initialized — ready to execute Phase 1
+**Active phase:** Phase 1 — Ship-Blocking Fixes (Plan 01 complete)
+**Status:** 🟢 Executing Phase 1 — Plan 01 complete, Plan 02+ pending
 
 ---
 
@@ -11,7 +11,7 @@
 
 ```
 Milestone 1: Atlas v1.0 MVP
-  ◻ Phase 1: Ship-Blocking Fixes       ← START HERE
+  ▶ Phase 1: Ship-Blocking Fixes       ← IN PROGRESS (Plan 01/0N complete)
   ◻ Phase 2: Offline Resilience + Tests
   ◻ Phase 3: Settings UI + Voice UX
   ◻ Phase 4: Local AI + Long-term Memory
@@ -37,16 +37,22 @@ Atlas AI v0.6 alpha was built (~85% complete):
 
 ## Known Issues to Fix in Phase 1
 
-1. **PORT BUG**: `frontend/src/renderer/services/websocket.ts:36` — `ws://localhost:8001` should be `ws://localhost:8000`
+1. ~~**PORT BUG**: `frontend/src/renderer/services/websocket.ts:36` — `ws://localhost:8001` should be `ws://localhost:8000`~~ **FIXED in Plan 01** (commit 9139b56)
 2. **DB NOT WIRED**: `SQLiteConversationRepository` fully implemented but never injected into use cases
 3. **Playwright leak**: Browser contexts not cleaned up on session disconnect
 4. **Misleading name**: `wake_word_loop()` in `manager.py` handles ALL message types, not just wake word
 
 ---
 
+## Decisions Log
+
+- **2026-03-24 (01-01):** Fixed WebSocket port typo in constructor default parameter only — no reconnect logic or event handler changes. JSDoc comment updated alongside code to keep documentation accurate.
+
+---
+
 ## Next Action
 
-Run `/gsd:plan-phase 1` to create the detailed execution plan for Phase 1.
+Execute Phase 1 Plan 02 (DB wiring or next plan in sequence).
 
 ---
 

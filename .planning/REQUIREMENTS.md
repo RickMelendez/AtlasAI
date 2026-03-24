@@ -73,7 +73,7 @@ These requirements are met by existing code and are included for traceability.
 
 ### Infrastructure Fixes
 
-- [ ] **INFRA-01**: Fix port discrepancy — frontend WebSocket URL must match backend port (8000 vs 8001)
+- [x] **INFRA-01**: Fix port discrepancy — frontend WebSocket URL must match backend port (8000 vs 8001)
 - [ ] **INFRA-02**: Playwright browser context cleanup on session disconnect
 - [ ] **INFRA-03**: Rename wake_word_loop → handle_messages for clarity
 - [ ] **INFRA-04**: Multi-monitor: detect available screens, capture specific monitor
@@ -123,7 +123,7 @@ These requirements are met by existing code and are included for traceability.
 | UX-03 | Phase TBD | Pending |
 | UX-04 | Phase TBD | Pending |
 | UX-05 | Phase TBD | Pending |
-| INFRA-01 | Phase TBD | Pending |
+| INFRA-01 | Phase 1, Plan 01 | Complete (2026-03-24) |
 | INFRA-02 | Phase TBD | Pending |
 | INFRA-03 | Phase TBD | Pending |
 | INFRA-04 | Phase TBD | Pending |
@@ -135,4 +135,4 @@ These requirements are met by existing code and are included for traceability.
 
 ---
 *Requirements defined: 2026-03-23*
-*Last updated: 2026-03-23 after brownfield initialization*
+*Last updated: 2026-03-24 — INFRA-01 marked complete (Phase 1 Plan 01)*
