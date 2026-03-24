@@ -18,6 +18,13 @@
 | 4 | Rename `wake_word_loop` → `handle_messages` | `manager.py` | Clarity — it handles all message types |
 | 5 | Remove no-op `screen_monitor_loop` or give it real behavior | `manager.py` | Currently just `asyncio.sleep(3)` |
 
+**Plans:** 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Fix WebSocket port 8001→8000 in websocket.ts
+- [ ] 01-02-PLAN.md — Wire DB persistence into text chat path (main.py)
+- [ ] 01-03-PLAN.md — manager.py: Playwright cleanup + rename loop + remove no-op + voice persistence
+
 **Success criteria:**
 - Frontend "connected" dot goes green immediately
 - Chat history survives backend restart
