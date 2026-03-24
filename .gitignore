@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+venv/
+.env
+# .env.example is intentionally committed (safe template, no secrets)
+ENV/
+*.pyc
+
+# FastAPI
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Node modules (frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Frontend build
+frontend/dist/
+frontend/build/
+frontend/.vite/
+frontend/.next/
+frontend/out/
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Electron
+frontend/dist-electron/
+frontend/release/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nyc_output/
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# API Keys (extra safety)
+*_key.txt
+*_secret.txt
+credentials.json
+
+# mypy cache (large, auto-generated)
+.mypy_cache/
+backend/.mypy_cache/
+
+# Atlas runtime logs
+.backend.log
+.frontend.log
+
+# VSCode local settings (keep .vscode/settings.json for shared config)
+.vscode/settings.local.json

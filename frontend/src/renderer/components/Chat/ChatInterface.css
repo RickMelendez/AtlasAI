@@ -1,0 +1,393 @@
+/**
+ * ChatInterface Styles — transparent glass panel below the orb
+ */
+
+/* ── Panel ────────────────────────────────────────────────────────────────── */
+
+.chat-panel {
+  position:   relative;
+  display:    flex;
+  flex-direction: column;
+  width:      100%;
+  flex:       1;
+  overflow:   hidden;
+  background: rgba(8, 8, 18, 0.82);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 0 0 16px 16px;
+  animation: panelSlideIn 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes panelSlideIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0);     }
+}
+
+/* ── Close button ─────────────────────────────────────────────────────────── */
+
+.chat-close {
+  position:      absolute;
+  top:           12px;
+  right:         14px;
+  width:         28px;
+  height:        28px;
+  border-radius: 50%;
+  border:        1px solid rgba(255,255,255,0.12);
+  background:    rgba(255,255,255,0.07);
+  color:         rgba(255,255,255,0.6);
+  display:       flex;
+  align-items:   center;
+  justify-content: center;
+  cursor:        pointer;
+  transition:    all 0.18s ease;
+  flex-shrink:   0;
+  z-index:       10;
+}
+.chat-close:hover {
+  background: rgba(255,255,255,0.14);
+  color:      white;
+}
+
+/* ── Messages ─────────────────────────────────────────────────────────────── */
+
+.chat-messages {
+  flex:        1;
+  padding:     16px 18px 8px;
+  overflow-y:  auto;
+  display:     flex;
+  flex-direction: column;
+  gap:         10px;
+}
+
+.chat-messages::-webkit-scrollbar       { width: 4px; }
+.chat-messages::-webkit-scrollbar-track { background: transparent; }
+.chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+
+.chat-empty {
+  flex:        1;
+  display:     flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 32px;
+  gap:         6px;
+}
+.chat-empty-title {
+  font-size:   18px;
+  font-weight: 600;
+  color:       rgba(255,255,255,0.85);
+  margin:      0;
+}
+.chat-empty-sub {
+  font-size:   13px;
+  color:       rgba(255,255,255,0.45);
+  margin:      0;
+  text-align:  center;
+}
+
+/* ── Message bubbles ──────────────────────────────────────────────────────── */
+
+.msg {
+  display:        flex;
+  flex-direction: column;
+  animation:      msgIn 0.22s ease-out;
+}
+@keyframes msgIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+.msg--user      { align-items: flex-end; }
+.msg--assistant { align-items: flex-start; }
+
+.msg-bubble-wrap {
+  position: relative;
+  max-width: 82%;
+}
+
+.msg-bubble {
+  padding:     10px 14px;
+  border-radius: 14px;
+  word-wrap:   break-word;
+  line-height: 1.55;
+  font-size:   14px;
+  white-space: pre-wrap;
+}
+.msg--user .msg-bubble {
+  background:             rgba(255,255,255,0.13);
+  color:                  white;
+  border-bottom-right-radius: 3px;
+}
+.msg--assistant .msg-bubble {
+  background:            rgba(255,255,255,0.07);
+  color:                 rgba(255,255,255,0.92);
+  border-bottom-left-radius: 3px;
+  border:                1px solid rgba(255,255,255,0.06);
+}
+.msg-time {
+  font-size:  10px;
+  color:      rgba(255,255,255,0.35);
+  margin-top: 3px;
+  padding:    0 4px;
+}
+
+/* ── Copy button (appears on hover) ───────────────────────────────────────── */
+
+.msg-copy {
+  position:      absolute;
+  top:           6px;
+  right:         6px;
+  width:         26px;
+  height:        26px;
+  border-radius: 6px;
+  border:        1px solid rgba(255,255,255,0.10);
+  background:    rgba(255,255,255,0.08);
+  color:         rgba(255,255,255,0.45);
+  display:       flex;
+  align-items:   center;
+  justify-content: center;
+  cursor:        pointer;
+  opacity:       0;
+  transition:    all 0.15s ease;
+  padding:       0;
+}
+.msg:hover .msg-copy { opacity: 1; }
+.msg-copy:hover {
+  background: rgba(255,255,255,0.15);
+  color:      rgba(255,255,255,0.85);
+  border-color: rgba(255,255,255,0.20);
+}
+.msg-copy--done {
+  color:      #00ffa3;
+  border-color: rgba(0,255,163,0.3);
+}
+
+/* ── Inline code ──────────────────────────────────────────────────────────── */
+
+.msg-inline-code {
+  background:    rgba(255,255,255,0.10);
+  padding:       1px 5px;
+  border-radius: 4px;
+  font-family:   'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-size:     12.5px;
+  color:         #a8daff;
+}
+
+/* ── Code blocks ──────────────────────────────────────────────────────────── */
+
+.code-block {
+  margin:        6px 0;
+  border-radius: 10px;
+  overflow:      hidden;
+  background:    rgba(0, 0, 0, 0.35);
+  border:        1px solid rgba(255,255,255,0.08);
+}
+.code-block-header {
+  display:       flex;
+  align-items:   center;
+  justify-content: space-between;
+  padding:       5px 10px;
+  background:    rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.code-block-lang {
+  font-size:   11px;
+  color:       rgba(255,255,255,0.45);
+  font-family: inherit;
+  text-transform: lowercase;
+}
+.code-block-copy {
+  font-size:     11px;
+  color:         rgba(255,255,255,0.50);
+  background:    rgba(255,255,255,0.06);
+  border:        1px solid rgba(255,255,255,0.10);
+  border-radius: 5px;
+  padding:       2px 8px;
+  cursor:        pointer;
+  transition:    all 0.15s ease;
+}
+.code-block-copy:hover {
+  background: rgba(255,255,255,0.12);
+  color:      rgba(255,255,255,0.85);
+}
+.code-block pre {
+  margin:     0;
+  padding:    10px 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.code-block code {
+  font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-size:   12.5px;
+  color:       #c8d6e5;
+  line-height: 1.5;
+}
+
+/* ── Scroll to bottom button ──────────────────────────────────────────────── */
+
+.scroll-to-bottom {
+  position:      absolute;
+  bottom:        80px;
+  left:          50%;
+  transform:     translateX(-50%);
+  width:         32px;
+  height:        32px;
+  border-radius: 50%;
+  border:        1px solid rgba(255,255,255,0.15);
+  background:    rgba(8, 8, 18, 0.85);
+  backdrop-filter: blur(12px);
+  color:         rgba(255,255,255,0.65);
+  display:       flex;
+  align-items:   center;
+  justify-content: center;
+  cursor:        pointer;
+  transition:    all 0.18s ease;
+  z-index:       5;
+  padding:       0;
+  animation:     msgIn 0.2s ease-out;
+}
+.scroll-to-bottom:hover {
+  background: rgba(255,255,255,0.12);
+  color:      white;
+  border-color: rgba(255,255,255,0.25);
+}
+
+/* ── Voice visualizer strip ──────────────────────────────────────────────── */
+
+.voice-visualizer {
+  flex-shrink:    0;
+  padding:        2px 14px 0;
+  border-top:     1px solid rgba(255,255,255,0.05);
+}
+
+/* ── Input area ───────────────────────────────────────────────────────────── */
+
+.chat-input-area {
+  flex-shrink: 0;
+  padding:     8px 12px 12px;
+  border-top:  1px solid rgba(255,255,255,0.06);
+  display:     flex;
+  flex-direction: column;
+  gap:         6px;
+}
+
+.chat-input-row {
+  display:     flex;
+  align-items: flex-end;
+  gap:         8px;
+}
+
+/* Audio level bar */
+.audio-bar {
+  height:        3px;
+  background:    rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow:      hidden;
+}
+.audio-bar-fill {
+  height:        100%;
+  background:    linear-gradient(90deg, #00ffa3, #00d9ff);
+  border-radius: 2px;
+  transition:    width 0.05s linear;
+}
+
+/* ── Mic button (inside PromptInput left slot) ───────────────────────────── */
+
+.mic-btn {
+  position:      relative;
+  flex-shrink:   0;
+  width:         34px;
+  height:        34px;
+  border-radius: 50%;
+  border:        1.5px solid rgba(255,255,255,0.15);
+  background:    rgba(255,255,255,0.07);
+  color:         rgba(255,255,255,0.6);
+  display:       flex;
+  align-items:   center;
+  justify-content: center;
+  cursor:        pointer;
+  transition:    all 0.18s ease;
+  padding:       0;
+  outline:       none;
+}
+.mic-btn:hover {
+  background:   rgba(0,217,255,0.12);
+  border-color: rgba(0,217,255,0.4);
+  color:        #00d9ff;
+}
+.mic-btn--active {
+  border-color: #00ffa3;
+  background:   rgba(0,255,163,0.12);
+  color:        #00ffa3;
+}
+.mic-btn--recording {
+  border-color: #ff4444;
+  background:   rgba(255,68,68,0.18);
+  color:        #ff6666;
+  animation:    recPulse 0.9s ease-in-out infinite;
+}
+.mic-btn--processing {
+  border-color: #ffaa00;
+  background:   rgba(255,170,0,0.12);
+  color:        #ffaa00;
+}
+.mic-btn--error {
+  border-color: #ff4444;
+  color:        #ff4444;
+}
+
+.mic-pulse-ring {
+  position:      absolute;
+  inset:         -5px;
+  border-radius: 50%;
+  border:        1.5px solid #00ffa3;
+  opacity:       0;
+  animation:     ringPulse 1.8s ease-out infinite;
+  pointer-events: none;
+}
+
+@keyframes ringPulse {
+  0%   { transform: scale(0.85); opacity: 0.7; }
+  100% { transform: scale(1.45); opacity: 0;   }
+}
+@keyframes recPulse {
+  0%, 100% { box-shadow: 0 0 0 0   rgba(255,68,68,0.5); }
+  50%       { box-shadow: 0 0 0 8px rgba(255,68,68,0);   }
+}
+
+/* ── Thinking bubble ─────────────────────────────────────────────────────── */
+
+.msg-bubble--thinking {
+  display:     flex;
+  align-items: center;
+  min-height:  32px;
+  padding:     8px 14px;
+}
+
+/* ── Voice status chip ───────────────────────────────────────────────────── */
+
+.voice-chip {
+  display:       flex;
+  align-items:   center;
+  gap:           6px;
+  font-size:     11px;
+  color:         rgba(255,255,255,0.5);
+  padding:       0 4px;
+}
+.voice-chip--error { color: #ff8888; }
+
+.chip-dot {
+  width:         6px;
+  height:        6px;
+  border-radius: 50%;
+  flex-shrink:   0;
+}
+.chip-dot--green  { background: #00ffa3; box-shadow: 0 0 5px #00ffa3; animation: blink 1.8s ease-in-out infinite; }
+.chip-dot--red    { background: #ff4444; box-shadow: 0 0 5px #ff4444; animation: blink 0.8s ease-in-out infinite; }
+.chip-dot--yellow { background: #ffaa00; box-shadow: 0 0 5px #ffaa00; animation: blink 0.6s ease-in-out infinite; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}

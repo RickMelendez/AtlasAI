@@ -1,0 +1,66 @@
+/**
+ * App Styles — Atlas AI
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin:  0;
+  padding: 0;
+  width:   100%;
+  height:  100%;
+  background: transparent;
+}
+
+.app {
+  display:        flex;
+  flex-direction: column;
+  width:          100%;
+  height:         100%;
+  background:     transparent;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* ── Orb zone ─────────────────────────────────────────────────────────────── */
+
+.orb-zone {
+  flex-shrink: 0;
+  width:       200px;
+  height:      200px;
+  display:     flex;
+  align-items: center;
+  justify-content: center;
+  position:    relative;
+  align-self:  center;
+}
+
+/* tiny connection status dot */
+.conn-dot {
+  position:      absolute;
+  bottom:        6px;
+  right:         6px;
+  width:         7px;
+  height:        7px;
+  border-radius: 50%;
+  transition:    background 0.3s ease;
+}
+
+.conn-dot--on {
+  background:  #00ffa3;
+  box-shadow:  0 0 6px #00ffa3;
+  animation:   blink 2.5s ease-in-out infinite;
+}
+
+.conn-dot--off {
+  background: #ff4444;
+  box-shadow: 0 0 6px #ff4444;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}

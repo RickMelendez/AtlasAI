@@ -1,0 +1,26 @@
+/**
+ * OrbCanvas Styles
+ */
+
+.orb-canvas-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 180px;
+  height: 180px;
+  cursor: pointer;
+}
+
+.orb-canvas {
+  display: block;
+  transition: transform 0.15s ease;
+}
+
+.orb-canvas-container:hover .orb-canvas {
+  transform: scale(1.03);
+}
+
+.orb-canvas-container:active .orb-canvas {
+  transform: scale(0.97);
+}
