@@ -100,3 +100,6 @@ backend/.mypy_cache/
 
 # VSCode local settings (keep .vscode/settings.json for shared config)
 .vscode/settings.local.json
+
+# Claude Code local tooling (memory, skills, plans — not project code)
+.claude/
