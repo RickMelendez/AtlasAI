@@ -1,87 +1,70 @@
-# 🌟 Atlas AI Visual Companion
+# Atlas AI Visual Companion
 
-> An AI-powered visual assistant that functions as a tech-savvy companion sitting beside you, observing your screen, listening to your voice, and conversing naturally about what you both see.
+> An AI-powered visual assistant that sits beside you, watches your screen, listens to your voice, and converses naturally about what you both see.
 
-[![Version](https://img.shields.io/badge/version-0.5.0--alpha-blue.svg)](https://github.com/yourusername/atlas-ai)
+[![Version](https://img.shields.io/badge/version-0.6.0--alpha-blue.svg)](https://github.com/RickMelendez/AtlasAI)
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Node](https://img.shields.io/badge/node-18+-green.svg)](https://nodejs.org/)
-[![Progress](https://img.shields.io/badge/progress-75%25-yellow.svg)](STATUS.md)
 
 ---
 
-## 📖 What is Atlas?
+## What is Atlas?
 
-Atlas is **NOT** a traditional chatbot. It's an **event-driven continuous system** that operates like a living companion:
+Atlas is **not** a traditional chatbot. It's an **event-driven continuous system** — a living companion:
 
-- 🎤 **Always listening** for "Hey Atlas" wake word
-- 👁️ **Always watching** your screen (when active)
-- 💬 **Naturally conversing** about what you both see
-- 🔮 **Proactively helping** without being asked
-
-**Think of it as:** A tech-savvy friend sitting beside you, ready to help when you need it.
+- Listens for your wake word ("Hey Atlas") at all times
+- Watches your screen and understands context
+- Speaks responses aloud with a natural voice
+- Browses the web on your behalf using a real Chrome window
+- Responds in the same language you use (English or Spanish)
 
 ---
 
-## ✨ Key Features
+## Features
 
-### 🔮 Animated Orb Interface
-- Particle sphere with 500-800 particles
-- 6 visual states (Inactive, Active, Listening, Thinking, Speaking, Paused)
-- Beautiful gradients: cyan → purple → pink
-- 60 FPS smooth animation
+### Animated Orb Interface
+- Three.js particle sphere — 6 visual states driven by assistant state
+- States: Inactive, Active, Listening, Thinking, Speaking, Paused
+- Cyan → purple → pink gradient, 60 FPS smooth animation
+- Glow effect reacts to voice and speaking
 
-### 🎤 Voice Control
-- **Wake word detection**: "Hey Atlas" / "Hola Atlas"
-- **Voice commands**: activate, pause, continue, deactivate
-- **Natural conversation**: Speak naturally, Atlas understands context
-- **Bilingual**: Spanish and English support
+### Voice Pipeline
+- **Wake word**: "Hey Atlas" / "Hello Atlas" / "Hola Atlas" (OpenWakeWord)
+- **STT**: Faster Whisper (local, no API key required)
+- **TTS**: ElevenLabs (priority 1) → Fish Audio (priority 2) → Edge-TTS free fallback
+- Voice Activity Detection (VAD) auto-triggers recording
 
-### 👁️ Screen Vision
-- Captures screen every 3 seconds when active
-- OCR text extraction with Tesseract
+### Screen Vision
+- Screen capture every 3 seconds when active
 - App context detection (VS Code, browsers, terminal, etc.)
-- Error detection (TypeScript, Python, HTTP errors, etc.)
+- Vision analysis via Claude
 
-### 🤖 AI-Powered Responses
-- Powered by **Anthropic Claude 3.5 Sonnet**
-- Contextual responses based on what it sees
-- Conversational tone (like a friend, not a bot)
-- Concise, actionable suggestions
+### Web Browsing
+- Atlas can navigate to URLs in a real Chromium window (Playwright)
+- Click, type, and read page content
+- Screenshots sent back to Atlas for context
 
-### 🎯 Proactive Assistance
-- Detects errors on screen
-- Offers help without being asked
-- Context-aware suggestions
-- Non-intrusive design
-
-### ⏸️ Focus Mode
-- Pause with "pause" or "stop"
-- Screen capture stops
-- Resume with "continue" or "Hey Atlas"
-- Visual feedback (amber orb)
+### AI
+- Powered by **Anthropic Claude** (claude-sonnet model)
+- Context-aware responses based on what's visible on screen
+- Conversational tone — not a formal assistant
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ### Event-Driven Design
 
-**Traditional API (Wrong):**
-```
-User speaks → POST /chat → Response → END
-```
-
-**Atlas (Correct):**
 ```
 WebSocket always open
   ↓
-Backend continuous loops:
-  • Wake word detection (24/7)
+Backend:
+  • Wake word detection (continuous)
   • Screen monitoring (every 3s when ACTIVE)
-  • Conversation processing
+  • Voice → Whisper STT → Claude → ElevenLabs TTS
   • Proactive suggestions
 
-REST Endpoints (only for explicit commands):
+REST:
   • POST /activate
   • POST /pause
   • GET /status
@@ -90,510 +73,254 @@ REST Endpoints (only for explicit commands):
 ### Clean Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│         Frontend (Electron + React)      │
-│  • Orb Animation (Canvas API)            │
-│  • Audio Recording                       │
-│  • Screen Capture                        │
-│  • WebSocket Client                      │
-└──────────────┬──────────────────────────┘
-               │ WebSocket
-┌──────────────▼──────────────────────────┐
-│         Backend (FastAPI + Python)       │
-│                                          │
-│  ┌────────────────────────────────┐     │
-│  │  WebSocket Manager              │     │
-│  │  • Connection handling          │     │
-│  │  • Continuous loops             │     │
-│  └────────────────────────────────┘     │
-│                                          │
-│  ┌────────────────────────────────┐     │
-│  │  Event Bus                      │     │
-│  │  • Internal communication       │     │
-│  └────────────────────────────────┘     │
-│                                          │
-│  ┌────────────────────────────────┐     │
-│  │  Domain Layer                   │     │
-│  │  • AssistantState (6 modes)     │     │
-│  │  • Business logic               │     │
-│  └────────────────────────────────┘     │
-│                                          │
-│  ┌────────────────────────────────┐     │
-│  │  Adapters                       │     │
-│  │  • Claude (AI)                  │     │
-│  │  • Whisper (voice → text)       │     │
-│  │  • Porcupine (wake word)        │     │
-│  │  • Tesseract (OCR)              │     │
-│  └────────────────────────────────┘     │
-└─────────────────────────────────────────┘
+frontend/                    Electron + React
+  ├── Orb (Three.js)
+  ├── Chat panel
+  ├── WebSocket client
+  └── Audio capture (VAD)
+         │
+         │  WebSocket
+         ▼
+backend/src/
+  ├── domain/               Business entities (no dependencies)
+  ├── application/          Use cases + interfaces (ports)
+  ├── adapters/             Concrete implementations
+  │   ├── ai/               claude_adapter.py
+  │   ├── voice/            faster_whisper, elevenlabs, fish_audio, edge_tts, open_wake_word
+  │   └── web/              playwright_adapter.py
+  └── infrastructure/
+      ├── websocket/        WebSocketManager singleton
+      ├── events/           EventBus singleton
+      └── config/           settings.py, master_prompt.py
 ```
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Frontend
-- **Runtime**: Electron 28+
-- **Framework**: React 18 + TypeScript 5
-- **Styling**: TailwindCSS + CSS Modules
-- **Animation**: Canvas API (particle system)
-- **State**: Zustand
-- **Build**: Vite
-- **WebSocket**: Native WebSocket API
+- Electron 28, React 18, TypeScript 5
+- Three.js (orb animation)
+- TailwindCSS
+- Zustand (state)
+- Vite
 
 ### Backend
-- **Runtime**: Python 3.11+
-- **Framework**: FastAPI
-- **Architecture**: Clean Architecture (Domain → Application → Infrastructure)
-- **WebSocket**: FastAPI WebSocket support
-- **Event Bus**: Custom async event emitter
-- **AI**: Anthropic Claude 3.5 Sonnet
-- **Voice**: OpenAI Whisper (transcription), Picovoice Porcupine (wake word)
-- **Vision**: Tesseract OCR
-- **Database**: SQLite + SQLAlchemy (planned)
+- Python 3.11+, FastAPI, uvicorn
+- Anthropic Claude API
+- Faster Whisper (local STT)
+- OpenWakeWord (wake word detection)
+- ElevenLabs / Fish Audio / Edge-TTS (TTS chain)
+- Playwright (web browser automation)
+- SQLite + SQLAlchemy async
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ### Prerequisites
 
-- **Node.js** 18+ and npm
-- **Python** 3.11+
-- **Git**
-- **Tesseract OCR** (for screen vision)
+- Node.js 18+
+- Python 3.11+
+- Git
 
-### 1. Clone Repository
+### 1. Clone
 
 ```bash
-git clone https://github.com/yourusername/atlas-ai-companion.git
-cd atlas-ai-companion
+git clone https://github.com/RickMelendez/AtlasAI.git
+cd AtlasAI
 ```
 
-### 2. Backend Setup
+### 2. Backend
 
 ```bash
 cd backend
 
-# Create virtual environment
 python -m venv venv
 
-# Activate (Windows Git Bash)
-source venv/Scripts/activate
-
-# Or Windows CMD
+# Windows
 venv\Scripts\activate
 
-# Install dependencies
+# Mac/Linux
+source venv/bin/activate
+
 pip install -r requirements.txt
+
+# Install Playwright browser
+playwright install chromium
 ```
 
-### 3. Frontend Setup
+### 3. Frontend
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
 ```
 
-### 4. Install Tesseract OCR
-
-**Windows:**
-Download and install from: https://github.com/UB-Mannheim/tesseract/wiki
-
-**Mac:**
-```bash
-brew install tesseract
-```
-
-**Linux:**
-```bash
-sudo apt-get install tesseract-ocr tesseract-ocr-spa
-```
-
-### 5. Configure Environment Variables
+### 4. Environment Variables
 
 ```bash
 cd backend
 cp .env.example .env
 ```
 
-Edit `backend/.env`:
+Edit `backend/.env` — required keys:
 
 ```env
-# AI Services (Required)
-ANTHROPIC_API_KEY=sk...
-OPENAI_API_KEY=sk-...
+# AI (required)
+ANTHROPIC_API_KEY=sk-ant-...
 
-# Voice Output (Optional)
+# TTS — at least one recommended (Edge-TTS works with no key)
 ELEVENLABS_API_KEY=...
+# ELEVENLABS_VOICE_ID=   # optional override
 
-# App Configuration
+# App
 APP_NAME=Atlas AI
 DEBUG=True
 ```
 
-**Get API Keys:**
+Get API keys:
 - Anthropic: https://console.anthropic.com/
-- OpenAI: https://platform.openai.com/api-keys
 - ElevenLabs: https://elevenlabs.io/
 
 ---
 
-## 🎯 Usage
+## Running
 
-### Start Backend
+### Quick start (Windows)
 
-```bash
-cd backend
-source venv/Scripts/activate  # Windows: venv\Scripts\activate
-uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+```batch
+.\dev.bat
 ```
 
-Backend will be available at: `http://localhost:8000`
+Opens two terminal windows — backend and frontend.
 
-### Start Frontend
-
-In a separate terminal:
+### Manual
 
 ```bash
+# Backend
+cd backend
+venv\Scripts\activate
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+
+# Frontend (separate terminal)
 cd frontend
 npm run dev
 ```
 
-The Electron app will launch automatically.
+---
 
-### Interacting with Atlas
+## Usage
 
-1. **Activate Atlas:**
-   - Say "Hey Atlas" (wake word)
-   - Or click the system tray icon → "Show Orb"
-   - Or click the orb
-
-2. **Talk to Atlas:**
-   - Speak naturally
-   - Atlas sees your screen and responds in context
-
-3. **Pause (Focus Mode):**
-   - Say "pause" or "stop"
-   - Orb turns amber
-   - Screen capture stops
-
-4. **Resume:**
-   - Say "continue" or "Hey Atlas"
-   - Orb returns to cyan
-
-5. **Deactivate:**
-   - Say "deactivate"
-   - Orb goes to sleep
+| Action | How |
+|---|---|
+| Activate | Say "Hey Atlas" or click the orb |
+| Talk | Speak naturally — VAD triggers automatically |
+| Pause | Say "pause" or "stop" |
+| Resume | Say "continue" or "Hey Atlas" |
+| Browse | Say "open youtube.com" — Chrome window appears |
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 AtlasAI/
-├── backend/                          # Python FastAPI
+├── backend/
 │   ├── src/
-│   │   ├── domain/                  # Business entities
-│   │   │   ├── entities/
-│   │   │   │   ├── assistant_state.py    # 6 states (INACTIVE, ACTIVE, ...)
-│   │   │   │   ├── conversation.py
-│   │   │   │   └── screen_context.py
-│   │   │   └── value_objects/
-│   │   │
-│   │   ├── application/             # Use cases (business logic)
-│   │   │   ├── use_cases/
-│   │   │   │   ├── process_voice_command.py
-│   │   │   │   ├── analyze_screen.py
-│   │   │   │   ├── generate_response.py
-│   │   │   │   └── offer_proactive_help.py
-│   │   │   └── interfaces/          # Port definitions
-│   │   │
-│   │   ├── adapters/                # External integrations
-│   │   │   ├── ai/
-│   │   │   │   └── claude_adapter.py
-│   │   │   ├── voice/
-│   │   │   │   ├── whisper_adapter.py
-│   │   │   │   └── porcupine_adapter.py
-│   │   │   └── vision/
-│   │   │       └── tesseract_adapter.py
-│   │   │
-│   │   ├── infrastructure/
-│   │   │   ├── api/
-│   │   │   │   └── routes/
-│   │   │   │       ├── assistant.py
-│   │   │   │       └── websocket.py
-│   │   │   ├── websocket/
-│   │   │   │   └── manager.py           # WebSocket manager (singleton)
-│   │   │   ├── events/
-│   │   │   │   ├── event_bus.py         # Event Bus (singleton)
-│   │   │   │   └── event_types.py
-│   │   │   └── config/
-│   │   │       ├── settings.py
-│   │   │       └── master_prompt.py
-│   │   │
-│   │   └── main.py                      # FastAPI app entry point
-│   │
+│   │   ├── domain/              entities, value objects
+│   │   ├── application/         use cases, interfaces
+│   │   ├── adapters/
+│   │   │   ├── ai/              claude_adapter.py
+│   │   │   ├── voice/           whisper, wake word, TTS adapters
+│   │   │   └── web/             playwright_adapter.py
+│   │   └── infrastructure/
+│   │       ├── api/routes/      websocket.py
+│   │       ├── websocket/       manager.py
+│   │       ├── events/          event_bus.py, event_types.py
+│   │       └── config/          settings.py, master_prompt.py
+│   ├── models/                  wake word model (.ppn)
 │   ├── requirements.txt
 │   └── .env
 │
-├── frontend/                             # Electron + React
+├── frontend/
 │   ├── src/
-│   │   ├── main/                        # Electron main process
-│   │   │   ├── index.ts                 # App initialization
-│   │   │   ├── tray.ts                  # System tray
-│   │   │   └── capture.ts               # Screen capture
-│   │   │
-│   │   ├── renderer/                    # React UI
-│   │   │   ├── components/
-│   │   │   │   ├── Orb/
-│   │   │   │   │   ├── OrbCanvas.tsx    # Particle animation
-│   │   │   │   │   └── OrbCanvas.css
-│   │   │   │   ├── Chat/
-│   │   │   │   │   ├── ChatInterface.tsx
-│   │   │   │   │   └── Message.tsx
-│   │   │   │   └── Settings/
-│   │   │   │
-│   │   │   ├── hooks/
-│   │   │   │   ├── useWebSocket.ts
-│   │   │   │   └── useVoice.ts
-│   │   │   │
-│   │   │   ├── services/
-│   │   │   │   └── websocket.ts         # WebSocket service (singleton)
-│   │   │   │
-│   │   │   └── store/
-│   │   │       └── assistant-store.ts   # Zustand state
-│   │   │
-│   │   └── preload/
-│   │       └── index.ts                 # IPC bridge
-│   │
+│   │   ├── main/                Electron main process
+│   │   └── renderer/
+│   │       ├── components/
+│   │       │   ├── Orb/         NeuralOrb.tsx, OrbCanvas.css
+│   │       │   └── Chat/        ChatInterface.tsx
+│   │       ├── hooks/           useAudioCapture, useTTSPlayer, useWebSocket
+│   │       └── services/        websocket.ts
 │   └── package.json
 │
-├── CLAUDE.md                             # Instructions for Claude Code
-├── README.md                             # This file
-└── STATUS.md                             # Current progress & next steps
+├── docs/
+│   └── architecture.drawio
+├── dev.bat                      Windows quick-start
+├── CLAUDE.md                    Instructions for Claude Code
+└── README.md
 ```
 
 ---
 
-## 🎨 Visual Design
+## Orb States
 
-### Color Palette
+| State | Visual |
+|---|---|
+| INACTIVE | Slow dim particles |
+| ACTIVE | Bright cyan, ready |
+| LISTENING | Fast pulsing cyan |
+| THINKING | Multicolor rotation |
+| SPEAKING | Synchronized radial pulses |
+| PAUSED | Near-static amber |
+
+---
+
+## Color Palette
 
 ```css
---bg-primary: #0D0D0D        /* Almost black */
---orb-cyan: #00D9FF          /* Cyan brilliant */
---orb-purple: #7B2FFF        /* Purple */
---orb-pink: #FF006E          /* Pink */
---accent-green: #00FFA3      /* Green cyan */
---text-primary: #E0E0E0      /* Light gray */
---text-secondary: #8A8A8A    /* Medium gray */
---paused-amber: #FFA500      /* Amber for paused state */
+--bg-primary: #0D0D0D
+--orb-cyan:   #00D9FF
+--orb-purple: #7B2FFF
+--orb-pink:   #FF006E
+--accent:     #00FFA3
+--paused:     #FFA500
 ```
-
-### Orb States
-
-| State | Visual | Behavior |
-|---|---|---|
-| **INACTIVE** | Slow particles, dim colors (opacity 0.3) | Off, not listening |
-| **ACTIVE** | Normal speed, bright cyan | Ready for conversation |
-| **LISTENING** | Fast particles, pulsing cyan | Recording user's voice |
-| **THINKING** | Complex rotation, multicolor | Processing with AI |
-| **SPEAKING** | Synchronized pulses | Delivering response |
-| **PAUSED** | Almost static, slow amber pulse | Focus mode - no screen capture |
 
 ---
 
-## 🔑 Key Concepts
-
-### Assistant States
-
-Atlas has 6 distinct modes managed by `AssistantState`:
-
-```python
-class AssistantMode(Enum):
-    INACTIVE = "inactive"      # Off, not listening
-    ACTIVE = "active"          # Ready for conversation
-    LISTENING = "listening"    # Recording user's voice
-    THINKING = "thinking"      # Processing with AI
-    SPEAKING = "speaking"      # Delivering response
-    PAUSED = "paused"          # Focus mode
-```
-
-### Wake Word Detection
-
-Listens continuously for:
-- "Hey Atlas" / "Hello Atlas" / "Hola Atlas"
-- "Atlas" (alone or in context)
-- Commands: "activate", "pause", "continue", "deactivate"
-
-### Screen Monitoring
-
-When ACTIVE:
-- Captures screen every 3 seconds
-- Extracts text with Tesseract OCR
-- Detects app context (VS Code, browsers, terminal)
-- Identifies errors and issues
-- Sends context to Claude for intelligent responses
-
-### Event Bus System
-
-Internal communication via events:
-- `wake_word_detected`
-- `screen_context_updated`
-- `error_detected`
-- `user_frustrated`
-- `conversation_message`
-- `state_changed`
-
----
-
-## 🧪 Development
-
-### Running Tests
+## Development
 
 ```bash
-# Backend tests
-cd backend
-pytest
-pytest --cov=src tests/
-
-# Frontend tests
-cd frontend
-npm test
-```
-
-### Code Quality
-
-```bash
-# Backend
+# Backend quality
 black .
 isort .
 mypy src/
 
-# Frontend
+# Frontend quality
 npm run lint
 npm run type-check
 ```
 
-### Development Principles
+---
 
-1. **Clean Architecture**: Strict separation of concerns
-2. **Event-Driven**: Communication based on events
-3. **Type Safety**: TypeScript strict + Python type hints
-4. **Error Handling**: Comprehensive try-catch/try-except
-5. **Testing**: Unit tests + Integration tests
+## License
+
+MIT
 
 ---
 
-## 📊 Current Status
+## Credits
 
-**Version**: 0.5.0 Alpha
-**Progress**: 75% Complete
-
-See [STATUS.md](STATUS.md) for detailed progress tracking.
-
-### What's Working ✅
-- Backend FastAPI server
-- WebSocket infrastructure
-- Event Bus system
-- Orb animation (60 FPS)
-- State management
-- Voice command detection (implementation ready)
-- Screen capture (implementation ready)
-
-### What's Blocked ⚠️
-- **Anthropic API**: Credits depleted (blocking AI responses)
-- **Tesseract OCR**: Needs Windows installation (blocking screen vision)
-
----
-
-## 🐛 Troubleshooting
-
-### Backend won't start
-
-```bash
-# Check Python version
-python --version  # Should be 3.11+
-
-# Reinstall dependencies
-pip install -r requirements.txt
-
-# Check environment variables
-cat .env  # Linux/Mac
-type .env  # Windows
-```
-
-### Frontend won't start
-
-```bash
-# Clear node_modules
-rm -rf node_modules
-npm install
-
-# Clear cache
-npm cache clean --force
-```
-
-### WebSocket connection fails
-
-```bash
-# Verify backend is running
-curl http://localhost:8000/health
-
-# Check CORS settings in backend/src/main.py
-# Should allow localhost:5173 (Vite default port)
-```
-
-### Orb animation is laggy
-
-- Reduce particle count in `OrbCanvas.tsx` (default 500-800)
-- Check browser console for performance warnings
-- Ensure using `requestAnimationFrame`, not `setInterval`
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please:
-
-1. Fork the project
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Contribution Guidelines
-
-- Follow Clean Architecture principles
-- Write tests for new features
-- Document complex logic in Spanish
-- Use TypeScript strict / Python type hints
-- Keep code simple and readable
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
----
-
-## 🙏 Credits
-
-- **Anthropic** - Claude AI
-- **OpenAI** - Whisper
-- **Tesseract** - OCR Engine
-- Inspired by the vision of ambient AI assistants
+- [Anthropic](https://anthropic.com) — Claude AI
+- [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) — local STT
+- [OpenWakeWord](https://github.com/dscripka/openWakeWord) — wake word detection
+- [ElevenLabs](https://elevenlabs.io) — neural TTS
+- [Playwright](https://playwright.dev) — browser automation
+- [Three.js](https://threejs.org) — 3D orb animation
 
 ---
 
 <div align="center">
-
-**Built with ❤️ using Clean Architecture + Event-Driven Design**
-
-[⬆ Back to top](#-atlas-ai-visual-companion)
-
+Built with Clean Architecture + Event-Driven Design
 </div>
