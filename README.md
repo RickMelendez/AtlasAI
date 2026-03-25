@@ -223,11 +223,8 @@ Edit `backend/.env`:
 
 ```env
 # AI Services (Required)
-ANTHROPIC_API_KEY=sk-ant-api03-...
+ANTHROPIC_API_KEY=sk...
 OPENAI_API_KEY=sk-...
-
-# Wake Word Detection (Optional)
-PICOVOICE_ACCESS_KEY=...
 
 # Voice Output (Optional)
 ELEVENLABS_API_KEY=...
@@ -240,7 +237,6 @@ DEBUG=True
 **Get API Keys:**
 - Anthropic: https://console.anthropic.com/
 - OpenAI: https://platform.openai.com/api-keys
-- Picovoice: https://console.picovoice.ai/
 - ElevenLabs: https://elevenlabs.io/
 
 ---
@@ -504,7 +500,6 @@ See [STATUS.md](STATUS.md) for detailed progress tracking.
 - WebSocket infrastructure
 - Event Bus system
 - Orb animation (60 FPS)
-- System tray
 - State management
 - Voice command detection (implementation ready)
 - Screen capture (implementation ready)
@@ -512,7 +507,6 @@ See [STATUS.md](STATUS.md) for detailed progress tracking.
 ### What's Blocked ⚠️
 - **Anthropic API**: Credits depleted (blocking AI responses)
 - **Tesseract OCR**: Needs Windows installation (blocking screen vision)
-- **Picovoice**: API key needed (blocking wake word detection)
 
 ---
 
@@ -591,17 +585,8 @@ This project is licensed under the MIT License.
 
 - **Anthropic** - Claude AI
 - **OpenAI** - Whisper
-- **Picovoice** - Porcupine Wake Word Engine
 - **Tesseract** - OCR Engine
 - Inspired by the vision of ambient AI assistants
-
----
-
-## 📞 Contact
-
-**Ricky** - Developer
-
-**Project Link**: https://github.com/yourusername/atlas-ai-companion
 
 ---
 
