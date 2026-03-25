@@ -168,8 +168,9 @@ async def lifespan(app: FastAPI):
     event_bus.on(EventType.USER_MESSAGE_RECEIVED.value, handle_user_message)
     logger.info("✅ Chat message handler registered")
 
-    # ── Voice pipeline: FasterWhisper + Fish Audio / Edge-TTS ─────────────────
+    # ── Voice pipeline: FasterWhisper + ElevenLabs / Fish Audio / Edge-TTS ──────
     from src.adapters.voice.faster_whisper_adapter import FasterWhisperAdapter
+    from src.adapters.voice.elevenlabs_adapter import ElevenLabsAdapter
     from src.adapters.voice.fish_audio_adapter import FishAudioAdapter
     from src.adapters.voice.edge_tts_adapter import EdgeTTSAdapter
     from src.application.use_cases.process_voice_command import \
@@ -188,17 +189,31 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️  FasterWhisperAdapter not available: {e}")
 
-    # Inicializar TTS: Fish Audio si hay key, Edge-TTS gratuito como fallback
-    if settings.fish_audio_api_key:
+    # Inicializar TTS: ElevenLabs → Fish Audio → Edge-TTS (fallback gratuito)
+    if settings.elevenlabs_api_key:
         try:
-            tts_service = FishAudioAdapter(api_key=settings.fish_audio_api_key)
+            tts_service = ElevenLabsAdapter(
+                api_key=settings.elevenlabs_api_key,
+                voice_id=settings.elevenlabs_voice_id or None,
+            )
+            logger.info("[TTS] Using ElevenLabs")
+        except Exception as e:
+            logger.warning(f"⚠️  ElevenLabsAdapter not available: {e}")
+
+    if tts_service is None and settings.fish_audio_api_key:
+        try:
+            tts_service = FishAudioAdapter(
+                api_key=settings.fish_audio_api_key,
+                voice_id=settings.fish_audio_voice_id or None,
+            )
             logger.info("[TTS] Using Fish Audio")
         except Exception as e:
             logger.warning(f"⚠️  FishAudioAdapter not available: {e}")
-    else:
+
+    if tts_service is None:
         try:
             tts_service = EdgeTTSAdapter()
-            logger.info("[TTS] Using Edge-TTS (free fallback — set FISH_AUDIO_API_KEY for Fish Audio)")
+            logger.info("[TTS] Using Edge-TTS (free fallback)")
         except Exception as e:
             logger.warning(f"⚠️  EdgeTTSAdapter not available: {e}")
 

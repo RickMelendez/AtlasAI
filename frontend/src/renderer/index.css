@@ -15,6 +15,14 @@
   box-sizing: border-box;
 }
 
+/* Prevent any browser/Tailwind default styling on canvas elements */
+canvas {
+  display: block;
+  outline: none;
+  border: none;
+  background: transparent;
+}
+
 html,
 body {
   width: 100%;

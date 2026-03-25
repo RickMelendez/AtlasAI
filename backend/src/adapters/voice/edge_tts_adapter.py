@@ -13,15 +13,15 @@ class EdgeTTSAdapter(TTSService):
     """
 
     VOICE_MAP = {
-        "en": "en-US-AriaNeural",
-        "es": "es-MX-DaliaNeural",
-        "fr": "fr-FR-DeniseNeural",
-        "de": "de-DE-KatjaNeural",
+        "en": "en-US-AndrewNeural",   # conversational, podcaster-style male voice
+        "es": "es-MX-JorgeNeural",    # natural Mexican Spanish male voice
+        "fr": "fr-FR-HenriNeural",
+        "de": "de-DE-ConradNeural",
     }
 
     async def synthesize_speech(self, text: str, language: str = "en") -> bytes:
-        voice = self.VOICE_MAP.get(language, "en-US-AriaNeural")
-        communicate = edge_tts.Communicate(text, voice)
+        voice = self.VOICE_MAP.get(language, "en-US-AndrewNeural")
+        communicate = edge_tts.Communicate(text, voice, rate="-5%", pitch="-3Hz")
         audio = io.BytesIO()
         async for chunk in communicate.stream():
             if chunk["type"] == "audio":

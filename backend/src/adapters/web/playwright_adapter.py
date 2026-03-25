@@ -76,10 +76,9 @@ class PlaywrightAdapter:
         from playwright.async_api import async_playwright
         self._pw = await async_playwright().start()
         self._browser = await self._pw.chromium.launch(
-            headless=True,
+            headless=False,
             args=[
                 "--no-sandbox",
-                "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
             ],
         )

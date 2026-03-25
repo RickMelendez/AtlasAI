@@ -56,8 +56,6 @@ function App() {
     mode:    audioMode,
     isCapturing,
     audioLevel,
-    startManualRecording,
-    stopManualRecording,
   } = useAudioCapture({
     autoStart:          true,   // Always listening from app start
     onWakeWordDetected: onWakeWord,
@@ -100,7 +98,8 @@ function App() {
         role:      'assistant' as const,
         timestamp: data.timestamp ? new Date(data.timestamp) : new Date(),
       }])
-      setAssistantState('active')
+      // Do NOT reset to 'active' here — TTS may be about to start.
+      // State returns to 'active' only after audio finishes (onTTSEnd).
     }
     // Imágenes inline de herramientas (screenshots de browser, etc.)
     const onToolScreenshot = (data: any) => {
@@ -197,8 +196,6 @@ function App() {
           onSendMessage={handleSendMessage}
           onClose={closeChat}
           audioMode={audioMode}
-          onMicClick={startManualRecording}
-          onMicStop={stopManualRecording}
         />
       </div>
     </div>

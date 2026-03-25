@@ -131,6 +131,8 @@ export function useAudioCapture(
   const graceTimerRef        = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pcmBufferRef         = useRef<number[]>([])             // int16 samples accumulator para Porcupine
   const visibilityHandlerRef  = useRef<(() => void) | null>(null) // cleanup for visibilitychange listener
+  const speechTriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null) // VAD auto-trigger debounce
+  const vadCooldownRef        = useRef(false)                    // 2s cooldown after recording finishes
 
   // Sync mode → modeRef
   const updateMode = useCallback((newMode: AudioCaptureMode) => {
@@ -160,6 +162,10 @@ export function useAudioCapture(
     graceActiveRef.current = false
 
     updateMode('processing')
+
+    // Arm cooldown so VAD doesn't immediately re-trigger after this recording
+    vadCooldownRef.current = true
+    setTimeout(() => { vadCooldownRef.current = false }, 2000)
   }, [updateMode])
 
   // ── Iniciar grabación de speech ────────────────────────────────────────────
@@ -292,6 +298,31 @@ export function useAudioCapture(
             } else if (silenceTimerRef.current) {
               clearTimeout(silenceTimerRef.current)
               silenceTimerRef.current = null
+            }
+          }
+        }
+
+        // ── VAD auto-trigger: start recording when sustained speech detected ────
+        // If user just starts talking (no wake word needed), auto-start recording.
+        // Threshold: 0.035 RMS sustained for 300ms → triggers recording.
+        // Cooldown: 2s after each recording finishes prevents immediate re-trigger.
+        if (modeRef.current === 'wake_word' && !vadCooldownRef.current) {
+          const SPEECH_THRESHOLD = 0.035
+          if (rms > SPEECH_THRESHOLD) {
+            if (!speechTriggerTimerRef.current) {
+              speechTriggerTimerRef.current = setTimeout(() => {
+                speechTriggerTimerRef.current = null
+                if (modeRef.current === 'wake_word' && !vadCooldownRef.current) {
+                  console.log('[AudioCapture] 🎙️ VAD auto-trigger: speech detected, starting recording')
+                  startRecording()
+                }
+              }, 300)
+            }
+          } else {
+            // Reset the trigger timer if speech drops below threshold
+            if (speechTriggerTimerRef.current) {
+              clearTimeout(speechTriggerTimerRef.current)
+              speechTriggerTimerRef.current = null
             }
           }
         }
@@ -432,6 +463,12 @@ export function useAudioCapture(
       graceTimerRef.current = null
     }
     graceActiveRef.current = false
+
+    if (speechTriggerTimerRef.current) {
+      clearTimeout(speechTriggerTimerRef.current)
+      speechTriggerTimerRef.current = null
+    }
+    vadCooldownRef.current = false
 
     // Remove visibilitychange listener
     if (visibilityHandlerRef.current) {

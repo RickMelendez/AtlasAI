@@ -23,7 +23,10 @@ class Settings(BaseSettings):
 
     # API Keys
     anthropic_api_key: str = ""
-    fish_audio_api_key: Optional[str] = None  # Optional — edge-tts used as free fallback
+    fish_audio_api_key: Optional[str] = None   # Optional — edge-tts used as free fallback
+    fish_audio_voice_id: Optional[str] = None  # Override default voice ID
+    elevenlabs_api_key: Optional[str] = None   # Optional — ElevenLabs TTS
+    elevenlabs_voice_id: Optional[str] = None  # Override default ElevenLabs voice
     notion_api_key: Optional[str] = None
 
     # Error Monitoring

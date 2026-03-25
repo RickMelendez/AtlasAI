@@ -12,13 +12,14 @@ class FishAudioAdapter(TTSService):
     """
 
     BASE_URL = "https://api.fish.audio/v1/tts"
-    DEFAULT_VOICE_ID = "ad026040e8084b47a31bdb2741aef3b8"  # warm English voice
+    DEFAULT_VOICE_ID = "54a5170264694bfc8e9ad98df7bd89c3"  # Benjamin — natural, conversational podcaster voice
 
     def __init__(self, api_key: str, voice_id: str = None):
         self.api_key = api_key
         self.voice_id = voice_id or self.DEFAULT_VOICE_ID
 
     async def synthesize_speech(self, text: str, language: str = "en") -> bytes:
+        logger.info(f"[TTS] Fish Audio using voice_id={self.voice_id!r}")
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 self.BASE_URL,
@@ -34,8 +35,10 @@ class FishAudioAdapter(TTSService):
                     "Content-Type": "application/json",
                 },
             )
+            if not response.is_success:
+                logger.error(f"[TTS] Fish Audio error {response.status_code}: {response.text[:300]}")
             response.raise_for_status()
-            logger.debug(f"[TTS] Fish Audio synthesized {len(text)} chars")
+            logger.info(f"[TTS] Fish Audio synthesized {len(text)} chars, {len(response.content)} bytes")
             return response.content
 
     async def get_available_voices(self) -> list:

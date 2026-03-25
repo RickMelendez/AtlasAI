@@ -43,11 +43,13 @@ Plans:
 | 4 | pytest: ProcessChatMessageUseCase | `backend/tests/test_use_cases.py` (new) | Use ANTHROPIC_MOCK=1 |
 | 5 | pytest: ToolExecutor dangerous command blocking | `backend/tests/test_tool_executor.py` (new) | Test all 8 regex patterns |
 | 6 | pytest: EventBus emit/on/error isolation | `backend/tests/test_event_bus.py` (new) | Simple pub/sub |
+| 7 | Pydantic schemas for tool inputs/outputs | `backend/src/domain/schemas/tools.py` (new), `tool_executor.py` | Validated I/O, catches malformed tool calls early |
 
 **Success criteria:**
 - Atlas starts and accepts voice with no OpenAI key (Vosk mode)
 - `pytest` green (all new tests)
 - `ANTHROPIC_MOCK=1 pytest` green (integration test)
+- Tool calls validated at boundary — malformed inputs raise `ValidationError` not `KeyError`
 
 ---
 
@@ -62,11 +64,13 @@ Plans:
 | 4 | Global hotkeys — push-to-talk | `frontend/src/main/index.ts` | Hold key → record, release → send |
 | 5 | Screen capture auto-start on activation | `frontend/src/renderer/App.tsx` | Not just on chat open |
 | 6 | Multi-step task planning (JARVIS pattern) | `backend/src/infrastructure/config/master_prompt.py` | Prompt injection for complex commands |
+| 7 | MCP server — expose Atlas tools as MCP | `backend/src/infrastructure/mcp/server.py` (new) | Tools reusable + discoverable; Claude calls via MCP not hardcoded JSON |
 
 **Success criteria:**
 - Settings panel opens, saves, reloads on restart
 - Hotkey activates Atlas from any app
 - Screen capture starts without opening chat
+- Atlas tools discoverable via MCP protocol
 
 ---
 
@@ -77,7 +81,7 @@ Plans:
 |---|------|---------|-------|
 | 1 | `OllamaAdapter` implementing `AIService` | `backend/src/adapters/ai/ollama_adapter.py` (new) | Drop-in for ClaudeAdapter |
 | 2 | `AI_BACKEND=anthropic\|ollama` env switch | `settings.py`, `main.py` | Auto-detect Ollama if no Anthropic key |
-| 3 | Long-term memory: conversation search | `backend/src/` | TF-IDF or sqlite-vss, REST endpoint |
+| 3 | Long-term memory: semantic conversation search | `backend/src/infrastructure/database/repositories/conversation_repository.py` | sqlite-vss (vector embeddings in existing SQLite DB), REST endpoint |
 | 4 | Multi-monitor screen capture | `frontend/src/main/capture.ts`, `frontend/src/preload/index.ts` | Detect screens, user picks one |
 
 **Success criteria:**
@@ -94,6 +98,7 @@ Plans:
 | Priler/jarvis (Rust) | Vosk as offline STT fallback | 2 |
 | microsoft/JARVIS (HuggingGPT) | Multi-step task planning before tool execution | 3 |
 | open-jarvis/OpenJarvis (Stanford) | Ollama local inference adapter | 4 |
+| "How to Build AI Agents" framework | Pydantic tool schemas, MCP standardization, sqlite-vss RAG | 2, 3, 4 |
 
 ---
 
