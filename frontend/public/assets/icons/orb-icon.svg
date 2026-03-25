@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="60%">
+      <stop offset="0%" stop-color="#07131C"/>
+      <stop offset="100%" stop-color="#0B1220"/>
+    </radialGradient>
+    <linearGradient id="neon" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00D9FF"/>
+      <stop offset="60%" stop-color="#37B7FF"/>
+      <stop offset="100%" stop-color="#7BE1FF"/>
+    </linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="256" height="256" rx="32" fill="url(#bg)"/>
+
+  <!-- Neon orbit lines inspired by the provided reference -->
+  <g fill="none" stroke="url(#neon)" stroke-linecap="round" filter="url(#glow)">
+    <!-- Multiple latitude-like bezier ribbons to emulate the swirling orb -->
+    <path d="M32,96 C80,72 176,72 224,96" stroke-width="5"/>
+    <path d="M28,120 C76,96 180,96 228,120" stroke-width="5"/>
+    <path d="M24,144 C72,120 184,120 232,144" stroke-width="5"/>
+    <path d="M28,168 C80,148 176,148 228,168" stroke-width="5"/>
+
+    <!-- Slightly offset inner ribbons -->
+    <path d="M40,84 C94,60 162,60 216,84" stroke-width="3.5" opacity="0.85"/>
+    <path d="M36,108 C90,84 166,84 220,108" stroke-width="3.5" opacity="0.85"/>
+    <path d="M32,132 C86,108 170,108 224,132" stroke-width="3.5" opacity="0.85"/>
+    <path d="M36,156 C92,134 164,134 220,156" stroke-width="3.5" opacity="0.85"/>
+
+    <!-- Outer subtle ribbons -->
+    <path d="M20,156 C60,132 196,132 236,156" stroke-width="2.5" opacity="0.6"/>
+    <path d="M16,180 C56,156 200,156 240,180" stroke-width="2.5" opacity="0.6"/>
+  </g>
+
+  <!-- Soft core glow -->
+  <circle cx="128" cy="128" r="10" fill="#FFFFFF" opacity="0.9"/>
+</svg>

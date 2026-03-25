@@ -1,0 +1,238 @@
+<mxfile host="Electron" modified="2025-01-30T00:00:00.000Z" agent="5.0" version="22.1.0" etag="atlas-ai-architecture" type="device">
+  <diagram id="atlas-architecture" name="Atlas AI Architecture">
+    <mxGraphModel dx="1434" dy="844" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Atlas AI - System Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=24;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="600" y="40" width="400" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- USER LAYER -->
+        <mxCell id="user-layer" value="USER INTERACTION" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;fontStyle=1;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="200" y="120" width="1200" height="150" as="geometry" />
+        </mxCell>
+
+        <mxCell id="user-voice" value="🎤 Voice Input&#xa;(Microphone)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="250" y="160" width="150" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="user-screen" value="👁️ Screen&#xa;(User's Desktop)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="450" y="160" width="150" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="user-orb" value="🌌 Orb UI&#xa;(Visual Feedback)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="650" y="160" width="150" height="80" as="geometry" />
+        </mxCell>
+
+        <mxCell id="user-tray" value="⚙️ System Tray&#xa;(Controls)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="850" y="160" width="150" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- FRONTEND LAYER -->
+        <mxCell id="frontend-layer" value="FRONTEND - Electron + React + TypeScript" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;fontStyle=1;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="200" y="320" width="1200" height="220" as="geometry" />
+        </mxCell>
+
+        <!-- Main Process -->
+        <mxCell id="electron-main" value="Electron Main Process" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="230" y="360" width="200" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tray-manager" value="System Tray&#xa;Manager" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="230" y="420" width="120" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="screen-capture" value="Screen Capture&#xa;Service" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="370" y="420" width="120" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ipc-bridge" value="IPC Bridge&#xa;(Preload)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="510" y="420" width="120" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Renderer Process -->
+        <mxCell id="react-renderer" value="React Renderer Process" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="360" width="200" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="orb-component" value="Orb Canvas&#xa;(Particle Animation)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="700" y="420" width="120" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="voice-hook" value="useVoice&#xa;Hook" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="840" y="420" width="120" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wakeword-hook" value="useWakeWord&#xa;Hook" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="980" y="420" width="120" height="60" as="geometry" />
+        </mxCell>
+
+        <mxCell id="api-client" value="API Client&#xa;Service" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="420" width="120" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- BACKEND LAYER -->
+        <mxCell id="backend-layer" value="BACKEND - FastAPI + Python" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=14;fontStyle=1;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="200" y="590" width="1200" height="320" as="geometry" />
+        </mxCell>
+
+        <!-- API Layer -->
+        <mxCell id="api-layer" value="API Layer (FastAPI Routes)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="230" y="630" width="1000" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="voice-endpoint" value="/api/voice&#xa;(Transcription)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="230" y="690" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="wakeword-ws" value="/ws/listen&#xa;(Wake Word WS)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="390" y="690" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="screen-endpoint" value="/api/screen&#xa;(OCR Analysis)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="550" y="690" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="assistant-endpoint" value="/api/assistant&#xa;(State Control)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="710" y="690" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="chat-endpoint" value="/api/chat&#xa;(Conversation)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="870" y="690" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="health-endpoint" value="/health&#xa;(Status)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="690" width="140" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Application Layer -->
+        <mxCell id="app-layer" value="Application Layer (Use Cases)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="230" y="770" width="1000" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="activate-uc" value="Activate&#xa;Assistant" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="250" y="830" width="110" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pause-uc" value="Pause/Resume&#xa;Assistant" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="380" y="830" width="110" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="voice-cmd-uc" value="Process Voice&#xa;Command" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="510" y="830" width="110" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="screen-uc" value="Analyze&#xa;Screen" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="640" y="830" width="110" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="response-uc" value="Generate&#xa;Response" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="770" y="830" width="110" height="50" as="geometry" />
+        </mxCell>
+
+        <!-- Domain Layer -->
+        <mxCell id="domain-layer" value="Domain Layer (Entities)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="770" width="180" height="110" as="geometry" />
+        </mxCell>
+
+        <mxCell id="assistant-state" value="AssistantState&#xa;Conversation&#xa;ScreenContext&#xa;Message" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;align=left;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="810" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- EXTERNAL SERVICES LAYER -->
+        <mxCell id="external-layer" value="EXTERNAL SERVICES &amp; ADAPTERS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;fontStyle=1;verticalAlign=top;align=center;" vertex="1" parent="1">
+          <mxGeometry x="200" y="960" width="1200" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="whisper-service" value="🎤 OpenAI Whisper&#xa;(Speech-to-Text)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="230" y="1010" width="160" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="porcupine-service" value="👂 Porcupine&#xa;(Wake Word Detection)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="420" y="1010" width="160" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="claude-service" value="🤖 Anthropic Claude&#xa;(AI Responses)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="610" y="1010" width="160" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="tesseract-service" value="👁️ Tesseract OCR&#xa;(Text Extraction)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="800" y="1010" width="160" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="elevenlabs-service" value="🔊 ElevenLabs&#xa;(Text-to-Speech)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="990" y="1010" width="160" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="sqlite-db" value="💾 SQLite&#xa;(Session Storage)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="1010" width="160" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- CONNECTIONS -->
+        <!-- User to Frontend -->
+        <mxCell id="arrow1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="user-voice" target="voice-hook">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="user-screen" target="screen-capture">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#666666;" edge="1" parent="1" source="user-orb" target="orb-component">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Frontend to Backend -->
+        <mxCell id="arrow4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#0066CC;dashed=1;" edge="1" parent="1" source="api-client" target="api-layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#00CC66;dashed=1;" edge="1" parent="1" source="wakeword-hook" target="wakeword-ws">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Backend to External Services -->
+        <mxCell id="arrow6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#CC0000;" edge="1" parent="1" source="voice-endpoint" target="whisper-service">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#CC0000;" edge="1" parent="1" source="wakeword-ws" target="porcupine-service">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#CC0000;" edge="1" parent="1" source="chat-endpoint" target="claude-service">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="arrow9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeWidth=2;strokeColor=#CC0000;" edge="1" parent="1" source="screen-endpoint" target="tesseract-service">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="legend" value="LEGEND" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;align=left;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="80" y="600" width="80" height="200" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-http" value="HTTP/REST" style="text;html=1;strokeColor=#0066CC;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="85" y="630" width="70" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-ws" value="WebSocket" style="text;html=1;strokeColor=#00CC66;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;strokeWidth=2;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="85" y="660" width="70" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-external" value="External API" style="text;html=1;strokeColor=#CC0000;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="85" y="690" width="70" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="legend-internal" value="Internal" style="text;html=1;strokeColor=#666666;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="85" y="720" width="70" height="20" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
