@@ -171,6 +171,25 @@ function App() {
         title={isConnected ? 'Connected to Atlas backend' : 'Disconnected — backend may be offline'}
       />
 
+      {/* Bottom-left HUD label */}
+      <div className="atlas-label">
+        <span className="atlas-label__name">Atlas AI</span>
+        <span className="atlas-label__status">
+          {isConnected ? 'sys.online' : 'sys.offline'}
+        </span>
+      </div>
+
+      {/* Top-right corner decoration */}
+      <div className="hud-corner" aria-hidden="true">
+        <div className="hud-corner__line" />
+        <div className="hud-corner__line" />
+      </div>
+
+      {/* State badge — centered bottom */}
+      <div className="state-badge" data-state={assistantState}>
+        {assistantState}
+      </div>
+
       {/* Chat panel — slides in from right */}
       <div className={`chat-panel-wrapper ${isChatOpen ? 'open' : ''}`}>
         <ChatInterface

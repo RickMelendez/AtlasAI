@@ -1,6 +1,9 @@
 /**
- * App Styles — Atlas AI (fullscreen web layout)
+ * Atlas AI — App Styles
+ * Dark deep-space aesthetic with subtle hex-grid background
  */
+
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;600&family=Share+Tech+Mono&display=swap');
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -8,10 +11,12 @@ html, body, #root {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: #0D0D0D;
-  font-family: 'Inter', -apple-system, sans-serif;
+  background: #060a12;
+  font-family: 'Rajdhani', 'Share Tech Mono', monospace;
   color: #ffffff;
 }
+
+/* ── Background — radial deep space + faint grid ────────────────────────────── */
 
 .app {
   width: 100vw;
@@ -20,75 +25,172 @@ html, body, #root {
   align-items: center;
   justify-content: center;
   position: relative;
-  background: radial-gradient(ellipse at center, #0a1628 0%, #0D0D0D 70%);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 50%, #071828 0%, #060a12 65%),
+    radial-gradient(ellipse 40% 40% at 20% 80%, #0d0820 0%, transparent 60%),
+    radial-gradient(ellipse 30% 30% at 80% 20%, #071a2e 0%, transparent 60%);
+  overflow: hidden;
+}
+
+/* Subtle scanline effect */
+.app::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 217, 255, 0.012) 2px,
+    rgba(0, 217, 255, 0.012) 4px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Corner bracket accents */
+.app::after {
+  content: '';
+  position: absolute;
+  inset: 24px;
+  border:  1px solid rgba(0, 217, 255, 0.06);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 0;
 }
 
 /* ── Orb zone ─────────────────────────────────────────────────────────────── */
 
 .orb-zone {
-  width: min(50vw, 50vh);
-  height: min(50vw, 50vh);
+  width: min(52vw, 52vh);
+  height: min(52vw, 52vh);
   cursor: pointer;
   position: relative;
   z-index: 1;
+  transition: transform 0.25s ease;
 }
 
-/* ── Connection status dot ───────────────────────────────────────────────── */
+.orb-zone:hover {
+  transform: scale(1.015);
+}
+
+/* ── Connection status ───────────────────────────────────────────────────── */
 
 .conn-dot {
   position: fixed;
-  bottom: 1.5rem;
-  left: 1.5rem;
-  width: 8px;
-  height: 8px;
+  bottom: 1.6rem;
+  left: 1.6rem;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   z-index: 20;
 }
 
 .conn-dot--on {
   background: #00FFA3;
-  box-shadow: 0 0 8px #00FFA3;
-  animation: blink 2.5s ease-in-out infinite;
+  box-shadow: 0 0 10px #00FFA3, 0 0 20px rgba(0,255,163,0.3);
+  animation: pulse-dot 2.8s ease-in-out infinite;
 }
 
 .conn-dot--off {
-  background: #666;
+  background: #3a3a3a;
   box-shadow: none;
 }
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.4; }
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.85); }
 }
 
-/* ── Atlas label ─────────────────────────────────────────────────────────── */
+/* ── ATLAS AI label — bottom-left, monospace HUD style ───────────────────── */
 
-.app::after {
-  content: 'Atlas AI';
+.atlas-label {
   position: fixed;
-  bottom: 1.5rem;
-  left: 2.5rem;
-  font-size: 0.75rem;
-  color: rgba(255,255,255,0.4);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  bottom: 1.3rem;
+  left: 2.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   pointer-events: none;
   z-index: 20;
 }
 
-/* ── Chat panel — slides in from right ───────────────────────────────────── */
+.atlas-label__name {
+  font-family: 'Rajdhani', monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: rgba(0, 217, 255, 0.7);
+}
+
+.atlas-label__status {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(0, 217, 255, 0.35);
+}
+
+/* ── Top-right corner decoration ─────────────────────────────────────────── */
+
+.hud-corner {
+  position: fixed;
+  top: 1.6rem;
+  right: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.hud-corner__line {
+  width: 48px;
+  height: 1px;
+  background: rgba(0, 217, 255, 0.2);
+}
+
+.hud-corner__line:first-child {
+  width: 80px;
+}
+
+/* ── Chat panel — slides from right ──────────────────────────────────────── */
 
 .chat-panel-wrapper {
   position: fixed;
   top: 0;
   right: 0;
-  width: 380px;
+  width: 400px;
   height: 100vh;
   transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
   z-index: 10;
 }
 
 .chat-panel-wrapper.open {
   transform: translateX(0);
 }
+
+/* ── State indicator ring — subtle label below orb ───────────────────────── */
+
+.state-badge {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: rgba(0, 217, 255, 0.28);
+  pointer-events: none;
+  z-index: 20;
+  transition: color 0.5s ease;
+}
+
+.state-badge[data-state='listening']  { color: rgba(0, 255, 255, 0.55); }
+.state-badge[data-state='thinking']   { color: rgba(123, 47, 255, 0.55); }
+.state-badge[data-state='speaking']   { color: rgba(0, 217, 255, 0.55); }
+.state-badge[data-state='paused']     { color: rgba(255, 165, 0, 0.45); }
