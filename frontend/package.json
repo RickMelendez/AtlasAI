@@ -1,14 +1,13 @@
 {
   "name": "atlas-ai-frontend",
   "version": "0.1.0",
-  "description": "Atlas AI Visual Companion - Frontend (Electron + React)",
-  "main": "dist-electron/main/index.js",
+  "description": "Atlas AI Visual Companion - Frontend (React)",
   "author": "Ricky",
   "license": "MIT",
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && electron-builder",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "type-check": "tsc --noEmit",
@@ -22,54 +21,23 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tailwind-merge": "^3.5.0",
+    "three": "^0.165.0",
     "zustand": "^4.4.7"
   },
   "devDependencies": {
     "@types/react": "^18.2.45",
     "@types/react-dom": "^18.2.18",
+    "@types/three": "^0.165.0",
     "@typescript-eslint/eslint-plugin": "^6.15.0",
     "@typescript-eslint/parser": "^6.15.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.27",
-    "canvas": "^3.2.0",
-    "electron": "^28.3.3",
-    "electron-builder": "^24.9.1",
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.5",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.3.3",
-    "vite": "^5.0.8",
-    "vite-plugin-electron": "^0.29.1",
-    "vite-plugin-electron-renderer": "^0.14.5"
-  },
-  "build": {
-    "appId": "com.atlasai.companion",
-    "productName": "Atlas AI",
-    "directories": {
-      "output": "release/${version}"
-    },
-    "files": [
-      "dist",
-      "dist-electron"
-    ],
-    "mac": {
-      "target": "dmg"
-    },
-    "win": {
-      "icon": "public/assets/icons/orb-icon.ico",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "linux": {
-      "target": "AppImage"
-    }
+    "vite": "^5.0.8"
   }
 }

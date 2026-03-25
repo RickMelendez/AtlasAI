@@ -16,38 +16,8 @@ import './index.css'
 // Must be the very first call
 initSentry()
 
-// ── Reload interception ───────────────────────────────────────────────────────
-// Intercept location.reload() and beforeunload so we can log a stack trace
-// BEFORE the page tears down. This identifies whether the reload is triggered
-// by:
-//   a) Vite HMR client's WebSocket close handler (stack: setupWebSocket → close)
-//   b) Vite HMR client's full-reload message handler (stack: handleMessage → full-reload)
-//   c) Something in the React app itself
-// The stack trace appears in the [Renderer:*] logs forwarded to main stdout.
-if (import.meta.env.DEV) {
-  if (import.meta.hot) {
-    import.meta.hot.on('vite:beforeFullReload', (payload: unknown) => {
-      console.warn('[Atlas] 🚨 vite:beforeFullReload — full-reload reached client! payload:', JSON.stringify(payload))
-    })
-    import.meta.hot.on('vite:ws:disconnect', () => {
-      console.warn('[Atlas] 🚨 vite:ws:disconnect — HMR WebSocket dropped!')
-    })
-  }
-
-  window.addEventListener('beforeunload', () => {
-    console.warn('[Atlas] 🚨 beforeunload fired — page is about to navigate/reload')
-  })
-}
-
 console.log('[Renderer] React app starting...')
 console.log('[Renderer] Environment:', import.meta.env.MODE)
-
-if (window.electronAPI) {
-  console.log('[Renderer] Electron API available')
-  console.log('[Renderer] System info:', window.electronAPI.getSystemInfo())
-} else {
-  console.warn('[Renderer] Electron API not available (running in browser?)')
-}
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -60,7 +30,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           background: 'rgba(10,10,20,0.95)', gap: 12, padding: 24,
           fontFamily: 'system-ui', textAlign: 'center',
         }}>
-          <div style={{ fontSize: 32 }}>⚠️</div>
+          <div style={{ fontSize: 32 }}>!</div>
           <div style={{ fontSize: 15, fontWeight: 600 }}>Something went wrong</div>
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', maxWidth: 280 }}>
             {(error as Error)?.message ?? 'Unknown error'}

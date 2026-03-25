@@ -1,66 +1,94 @@
 /**
- * App Styles — Atlas AI
+ * App Styles — Atlas AI (fullscreen web layout)
  */
 
-* {
-  box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body, #root {
-  margin:  0;
-  padding: 0;
-  width:   100%;
-  height:  100%;
-  background: transparent;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #0D0D0D;
+  font-family: 'Inter', -apple-system, sans-serif;
+  color: #ffffff;
 }
 
 .app {
-  display:        flex;
-  flex-direction: column;
-  width:          100%;
-  height:         100%;
-  background:     transparent;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  user-select: none;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  background: radial-gradient(ellipse at center, #0a1628 0%, #0D0D0D 70%);
 }
 
 /* ── Orb zone ─────────────────────────────────────────────────────────────── */
 
 .orb-zone {
-  flex-shrink: 0;
-  width:       200px;
-  height:      200px;
-  display:     flex;
-  align-items: center;
-  justify-content: center;
-  position:    relative;
-  align-self:  center;
+  width: min(50vw, 50vh);
+  height: min(50vw, 50vh);
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
 }
 
-/* tiny connection status dot */
+/* ── Connection status dot ───────────────────────────────────────────────── */
+
 .conn-dot {
-  position:      absolute;
-  bottom:        6px;
-  right:         6px;
-  width:         7px;
-  height:        7px;
+  position: fixed;
+  bottom: 1.5rem;
+  left: 1.5rem;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  transition:    background 0.3s ease;
+  z-index: 20;
 }
 
 .conn-dot--on {
-  background:  #00ffa3;
-  box-shadow:  0 0 6px #00ffa3;
-  animation:   blink 2.5s ease-in-out infinite;
+  background: #00FFA3;
+  box-shadow: 0 0 8px #00FFA3;
+  animation: blink 2.5s ease-in-out infinite;
 }
 
 .conn-dot--off {
-  background: #ff4444;
-  box-shadow: 0 0 6px #ff4444;
+  background: #666;
+  box-shadow: none;
 }
 
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0.4; }
+}
+
+/* ── Atlas label ─────────────────────────────────────────────────────────── */
+
+.app::after {
+  content: 'Atlas AI';
+  position: fixed;
+  bottom: 1.5rem;
+  left: 2.5rem;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.4);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 20;
+}
+
+/* ── Chat panel — slides in from right ───────────────────────────────────── */
+
+.chat-panel-wrapper {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 380px;
+  height: 100vh;
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+}
+
+.chat-panel-wrapper.open {
+  transform: translateX(0);
 }

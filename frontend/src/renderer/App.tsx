@@ -2,22 +2,16 @@
  * App Component — Atlas AI
  *
  * Always-on design: mic is always capturing, Atlas always listens for
- * "Hey Atlas". Chat opens automatically when the wake word is detected
- * or when the user clicks the orb.
+ * "Hey Atlas". Chat slides in from the right when opened.
  *
- * Window states:
- *   Orb only  → 200 × 200 px  (always visible, always on top)
- *   With chat → 420 × 660 px  (still always on top)
- *
- * Screen capture: starts automatically when Atlas is active, sending
- * frames to the backend so Claude can see what you're doing.
+ * Fullscreen layout: centered orb, chat panel slides in from right edge.
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAudioCapture } from './hooks/useAudioCapture'
 import { useTTSPlayer } from './hooks/useTTSPlayer'
-import { OrbCanvas } from './components/Orb/OrbCanvas'
+import { NeuralOrb } from './components/Orb/NeuralOrb'
 import { ChatInterface } from './components/Chat/ChatInterface'
 import type { Message } from './components/Chat/ChatInterface'
 import './App.css'
@@ -25,95 +19,32 @@ import './App.css'
 // ── Constants ─────────────────────────────────────────────────────────────────
 const PING_INTERVAL_MS = 10_000
 
-// ── Window dimensions ─────────────────────────────────────────────────────────
-const ORB_W  = 200
-const ORB_H  = 200
-const CHAT_W = 420
-const CHAT_H = 660
-
 // ── Component ─────────────────────────────────────────────────────────────────
 
 function App() {
   const { isConnected, send, on, off } = useWebSocket()
   // Default to 'active' so the orb is always bright and visible at startup.
-  // It transitions to the correct state once audio capture initialises (or
-  // stays 'active' if the mic is unavailable — better than an invisible orb).
   const [assistantState, setAssistantState] = useState<string>('active')
   const [isChatOpen,     setIsChatOpen]     = useState(false)
   const [messages,       setMessages]       = useState<Message[]>([])
 
-  // Drag state
-  const [isDragging, setIsDragging] = useState(false)
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-
-  // Screen capture active ref (avoid stale closures)
-  const screenCaptureActive = useRef(false)
   const isChatOpenRef = useRef(false)
 
-  // ── Helper: open the chat panel + resize window ───────────────────────────
-  const openChat = useCallback(async () => {
+  // ── Helper: open/close chat panel ─────────────────────────────────────────
+  const openChat = useCallback(() => {
     if (isChatOpenRef.current) return
     isChatOpenRef.current = true
     setIsChatOpen(true)
-    if (window.electronAPI) {
-      await window.electronAPI.resizeWindow(CHAT_W, CHAT_H)
-    }
   }, [])
 
-  const closeChat = useCallback(async () => {
+  const closeChat = useCallback(() => {
     isChatOpenRef.current = false
     setIsChatOpen(false)
-    if (window.electronAPI) {
-      await window.electronAPI.resizeWindow(ORB_W, ORB_H)
-    }
   }, [])
-
-  // ── Screen capture → WebSocket ────────────────────────────────────────────
-  const startScreenCapture = useCallback(async () => {
-    if (screenCaptureActive.current || !window.electronAPI) return
-    screenCaptureActive.current = true
-    await window.electronAPI.startScreenCapture()
-    console.log('[App] 📸 Screen capture started')
-  }, [])
-
-  const stopScreenCapture = useCallback(async () => {
-    if (!screenCaptureActive.current || !window.electronAPI) return
-    screenCaptureActive.current = false
-    await window.electronAPI.stopScreenCapture()
-    console.log('[App] 📸 Screen capture stopped')
-  }, [])
-
-  // Handle "Open Chat" triggered from tray menu (main → renderer IPC push)
-  useEffect(() => {
-    if (!window.electronAPI?.onOpenChat) return
-    const cleanup = window.electronAPI.onOpenChat(async () => {
-      await openChat()
-      await startScreenCapture()
-    })
-    return () => { cleanup() }
-  }, [openChat, startScreenCapture])
-
-  // Forward screen frames to backend via WebSocket.
-  // Registered once at mount — IPC listener is independent of WS connection state.
-  // The isConnected check happens at send-time inside the singleton.
-  useEffect(() => {
-    if (!window.electronAPI) return
-    const cleanup = window.electronAPI.onScreenCaptureFrame((frame) => {
-      send('screen_capture', {
-        data:      frame.data,
-        timestamp: frame.timestamp,
-        format:    frame.format,
-      })
-    })
-    return () => { cleanup() }
-  }, [send])
 
   // ── Stable voice callbacks ────────────────────────────────────────────────
-  const onWakeWord = useCallback(async (w: string) => {
-    console.log('[App] 🗣️  Wake word:', w)
+  const onWakeWord = useCallback((_w: string) => {
     setAssistantState('listening')
-    // Show orb without opening chat — user must say "open chat mode"
-    await window.electronAPI?.showOrbWindow()
   }, [])
 
   const onRecording = useCallback((_size: number) => setAssistantState('thinking'),  [])
@@ -136,36 +67,29 @@ function App() {
   // ── TTS playback ──────────────────────────────────────────────────────────
   useTTSPlayer({ onPlayStart: onTTSStart, onPlayEnd: onTTSEnd })
 
-  // Sync orb state with audio mode, and stop screen capture when mic turns off.
-  // When not capturing, keep orb 'active' (not 'inactive') so it stays visible —
-  // 'inactive' is nearly invisible on most desktop backgrounds.
+  // Sync orb state with audio mode.
+  // When not capturing, keep orb 'active' (not 'inactive') so it stays visible.
   useEffect(() => {
-    if (!isCapturing) {
-      stopScreenCapture()
-      return
-    }
+    if (!isCapturing) return
     if (audioMode === 'wake_word')  setAssistantState('active')
     if (audioMode === 'recording')  setAssistantState('listening')
     if (audioMode === 'processing') setAssistantState('thinking')
-  }, [audioMode, isCapturing, stopScreenCapture])
+  }, [audioMode, isCapturing])
 
   // ── WebSocket events ──────────────────────────────────────────────────────
   useEffect(() => {
     const onStateChanged = (data: any) => {
       if (data?.new_mode) setAssistantState(data.new_mode)
     }
-    const onWakeWordEvt = async (_data: any) => {
+    const onWakeWordEvt = (_data: any) => {
       setAssistantState('listening')
-      await window.electronAPI?.showOrbWindow()
     }
-    const onUICommand = async (data: any) => {
+    const onUICommand = (data: any) => {
       if (data?.action === 'dismiss') {
-        await closeChat()
-        await window.electronAPI?.hideOrbWindow()
+        closeChat()
         setAssistantState('active')
       } else if (data?.action === 'open_chat') {
-        await openChat()
-        await startScreenCapture()
+        openChat()
       }
     }
     const onAIResponse = (data: any) => {
@@ -205,43 +129,16 @@ function App() {
       off('ui_command',            onUICommand)
       clearInterval(ping)
     }
-  }, [isConnected, on, off, send, closeChat, openChat, startScreenCapture])
-
-  // ── Drag (from orb zone only) ─────────────────────────────────────────────
-  const handleOrbMouseDown = useCallback(async (e: React.MouseEvent) => {
-    if (!window.electronAPI) return
-    const [wx, wy] = await window.electronAPI.getWindowPosition()
-    setIsDragging(true)
-    setDragOffset({ x: e.screenX - wx, y: e.screenY - wy })
-  }, [])
-
-  useEffect(() => {
-    if (!isDragging) return
-    const onMove = (e: MouseEvent) => {
-      window.electronAPI?.setWindowPosition(
-        e.screenX - dragOffset.x,
-        e.screenY - dragOffset.y,
-      )
-    }
-    const onUp = () => setIsDragging(false)
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup',   onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup',   onUp)
-    }
-  }, [isDragging, dragOffset])
+  }, [isConnected, on, off, send, closeChat, openChat])
 
   // ── Orb click: toggle chat ────────────────────────────────────────────────
-  const handleOrbClick = useCallback(async () => {
-    if (isDragging) return
+  const handleOrbClick = useCallback(() => {
     if (isChatOpenRef.current) {
-      await closeChat()
+      closeChat()
     } else {
-      await openChat()
-      await startScreenCapture()
+      openChat()
     }
-  }, [isDragging, openChat, closeChat, startScreenCapture])
+  }, [openChat, closeChat])
 
   // ── Send chat message ─────────────────────────────────────────────────────
   const handleSendMessage = useCallback((text: string) => {
@@ -259,28 +156,23 @@ function App() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="app">
-      {/* Orb zone — always visible at top, draggable */}
-      <div
-        className="orb-zone"
-        onMouseDown={handleOrbMouseDown}
-        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
-      >
-        <OrbCanvas
+      {/* Orb zone — centered in viewport */}
+      <div className="orb-zone">
+        <NeuralOrb
           state={assistantState as any}
           onClick={handleOrbClick}
           audioLevel={audioLevel}
         />
-
-        {/* Connection status dot */}
-        <div
-          className={`conn-dot ${isConnected ? 'conn-dot--on' : 'conn-dot--off'}`}
-          title={isConnected ? 'Connected to Atlas backend' : 'Disconnected — backend may be offline'}
-        />
-
       </div>
 
-      {/* Chat panel — slides in below orb */}
-      {isChatOpen && (
+      {/* Connection status dot */}
+      <div
+        className={`conn-dot ${isConnected ? 'conn-dot--on' : 'conn-dot--off'}`}
+        title={isConnected ? 'Connected to Atlas backend' : 'Disconnected — backend may be offline'}
+      />
+
+      {/* Chat panel — slides in from right */}
+      <div className={`chat-panel-wrapper ${isChatOpen ? 'open' : ''}`}>
         <ChatInterface
           messages={messages}
           onSendMessage={handleSendMessage}
@@ -289,7 +181,7 @@ function App() {
           onMicClick={startManualRecording}
           onMicStop={stopManualRecording}
         />
-      )}
+      </div>
     </div>
   )
 }

@@ -23,12 +23,7 @@ class Settings(BaseSettings):
 
     # API Keys
     anthropic_api_key: str = ""
-    openai_api_key: str = ""
-    elevenlabs_api_key: Optional[str] = None
-    # Default voice: "Daniel" — calm, British male, great for tech assistance
-    # Find voice IDs at: https://api.elevenlabs.io/v1/voices
-    elevenlabs_voice_id: str = "onwK4e9ZLuTAKqWW03F9"
-    picovoice_access_key: str = ""
+    fish_audio_api_key: Optional[str] = None  # Optional — edge-tts used as free fallback
     notion_api_key: Optional[str] = None
 
     # Error Monitoring

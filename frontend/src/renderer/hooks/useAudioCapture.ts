@@ -131,8 +131,6 @@ export function useAudioCapture(
   const graceTimerRef        = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pcmBufferRef         = useRef<number[]>([])             // int16 samples accumulator para Porcupine
   const visibilityHandlerRef  = useRef<(() => void) | null>(null) // cleanup for visibilitychange listener
-  const recognitionRef        = useRef<any>(null)                 // Web Speech API SpeechRecognition instance
-  const speechApiFailedRef    = useRef(false)                     // true after permanent failure (network/not-allowed)
 
   // Sync mode → modeRef
   const updateMode = useCallback((newMode: AudioCaptureMode) => {
@@ -227,11 +225,6 @@ export function useAudioCapture(
 
       // Volver a escuchar wake word
       updateMode('wake_word')
-
-      // Restart SpeechRecognition now that we're back in wake_word mode
-      if (recognitionRef.current && isCapturingRef.current) {
-        try { recognitionRef.current.start() } catch (_) {}
-      }
     }
 
     recordingStartTimeRef.current = Date.now()
@@ -337,7 +330,6 @@ export function useAudioCapture(
       return true
     }
     isCapturingRef.current = true  // lock immediately, before any await
-    speechApiFailedRef.current = false  // reset on each fresh start
 
     try {
       console.log('[AudioCapture] 🎤 Requesting microphone access...')
@@ -363,66 +355,10 @@ export function useAudioCapture(
       const source = audioContext.createMediaStreamSource(stream)
       setupAudioProcessor(audioContext, source)
 
-      // ── Web Speech API: browser-native wake word detection ─────────────────
-      // Chromium/Electron has built-in SpeechRecognition — no API key needed.
-      // Detects "hey atlas" / "atlas" locally; tells backend via wake_word_trigger.
-      const SpeechRecognitionAPI =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      if (SpeechRecognitionAPI) {
-        const recognition = new SpeechRecognitionAPI()
-        recognition.continuous     = true
-        recognition.interimResults = true
-        recognition.lang           = 'en-US'
+      // Wake word detection is handled entirely by the backend (Porcupine).
+      // PCM audio chunks are sent via WebSocket in the AnalyserNode polling loop.
 
-        const WAKE_TRIGGERS = ['atlas', 'hey atlas', 'hello atlas', 'hola atlas']
-
-        recognition.onresult = (event: any) => {
-          if (modeRef.current !== 'wake_word') return
-          const transcript = Array.from(event.results as any[])
-            .map((r: any) => r[0].transcript)
-            .join('')
-            .toLowerCase()
-            .trim()
-          if (WAKE_TRIGGERS.some(w => transcript.includes(w))) {
-            console.log(`[AudioCapture] 🗣️  Wake word via SpeechRecognition: "${transcript}"`)
-            recognition.stop()   // pause during recording
-            onWakeWordDetected?.('hey atlas')
-            startRecording()
-            if (wsService.isConnected()) {
-              wsService.send('wake_word_trigger', { wake_word: 'hey atlas' })
-            }
-          }
-        }
-
-        recognition.onerror = (event: any) => {
-          if (event.error === 'aborted') return      // expected on recognition.stop()
-          if (event.error === 'not-allowed' || event.error === 'network') {
-            // Permanent failure — stop retrying to prevent infinite loop
-            speechApiFailedRef.current = true
-            console.warn(`[AudioCapture] SpeechRecognition permanently failed (${event.error}), falling back to backend wake word`)
-            return
-          }
-          if (event.error !== 'no-speech') {
-            console.warn('[AudioCapture] SpeechRecognition error:', event.error)
-          }
-        }
-
-        recognition.onend = () => {
-          // Don't restart after permanent failure or when not in wake_word mode
-          if (speechApiFailedRef.current) return
-          if (modeRef.current === 'wake_word' && isCapturingRef.current) {
-            try { recognition.start() } catch (_) {}
-          }
-        }
-
-        recognitionRef.current = recognition
-        recognition.start()
-        console.log('[AudioCapture] 🧠 Web Speech API wake word detection active')
-      } else {
-        console.warn('[AudioCapture] SpeechRecognition not available — using backend-only detection')
-      }
-
-      // Resume AudioContext if Chromium suspends it when the window is hidden.
+      // Resume AudioContext if the browser suspends it when the tab is hidden.
       // setBackgroundThrottling(false) in main.ts prevents CPU throttling, but
       // AudioContext can still auto-suspend on visibilitychange in some builds.
       const onVisibility = () => {
@@ -501,12 +437,6 @@ export function useAudioCapture(
     if (visibilityHandlerRef.current) {
       document.removeEventListener('visibilitychange', visibilityHandlerRef.current)
       visibilityHandlerRef.current = null
-    }
-
-    // Stop Web Speech API recognition
-    if (recognitionRef.current) {
-      try { recognitionRef.current.abort() } catch (_) {}
-      recognitionRef.current = null
     }
 
     pcmBufferRef.current = []       // descartar muestras PCM pendientes

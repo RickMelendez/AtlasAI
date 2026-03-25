@@ -7,7 +7,7 @@ continuos que permiten escuchar 24/7 y monitorear pantalla.
 
 Mensajes que recibe del frontend:
   - ping            → responde con pong (keepalive)
-  - audio_chunk     → chunk PCM Int16 para wake word detection (Porcupine)
+  - audio_chunk     → chunk PCM Int16 para wake word detection (OpenWakeWord)
   - audio_command   → audio completo (WebM/WAV) para STT (Whisper)
   - chat_message    → mensaje de texto del usuario
   - screen_capture  → frame de pantalla para OCR
@@ -29,6 +29,8 @@ import json
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, Optional
+
+from src.adapters.vision.mss_capture_adapter import MSSCaptureAdapter
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -224,7 +226,7 @@ class WebSocketManager:
         self._tool_executor = None
         # Guard: evita pipelines de voz concurrentes por sesión
         self._voice_busy: Dict[str, bool] = {}
-        # Whisper service para detección de wake word sin Porcupine
+        # Whisper service para detección de wake word cuando OpenWakeWord no está disponible
         self._whisper_service = None
         # Buffer PCM por sesión para detección de wake word con Whisper
         self._wake_word_pcm_buffers: Dict[str, bytearray] = {}
@@ -293,7 +295,7 @@ class WebSocketManager:
         logger.info("✅ Voice use case factory registered in WebSocketManager")
 
     def set_whisper_service(self, whisper_service) -> None:
-        """Inyecta el servicio Whisper para detección de wake word sin Porcupine."""
+        """Inyecta el servicio FasterWhisper para detección de wake word como fallback."""
         self._whisper_service = whisper_service
         logger.info("✅ Whisper service registered for wake word detection")
 
@@ -351,6 +353,8 @@ class WebSocketManager:
 
             # Arranca loop principal en background
             asyncio.create_task(self.handle_messages(session_id))
+            # Arranca loop de captura de pantalla en background
+            asyncio.create_task(self._screen_capture_loop(session_id))
 
             logger.info(f"[{session_id}] Continuous loops started")
 
@@ -403,7 +407,7 @@ class WebSocketManager:
         Loop principal que escucha todos los mensajes del frontend.
 
         Procesa:
-        - audio_chunk    → wake word detection via Porcupine
+        - audio_chunk    → wake word detection via OpenWakeWord
         - audio_command  → STT + AI + TTS pipeline
         - chat_message   → texto directo al AI
         - screen_capture → OCR + análisis de pantalla
@@ -411,37 +415,18 @@ class WebSocketManager:
         """
         logger.info(f"[{session_id}] Message handler loop started")
 
-        # Porcupine adapter para esta sesión (lazy init — solo si hay access key)
-        porcupine = None
+        # OpenWakeWord adapter para esta sesión (lazy init — carga modelos ONNX locales)
+        oww = None
         try:
-            from src.adapters.voice.porcupine_adapter import PorcupineAdapter
-            from src.infrastructure.config.settings import get_settings
-
-            settings = get_settings()
-            if (
-                settings.picovoice_access_key
-                and settings.picovoice_access_key != "your_key_here"
-            ):
-                # Inicializar Porcupine en un thread pool para no bloquear el event loop.
-                # pvporcupine.create() realiza I/O (validación de access key con red) y puede
-                # tardar ~1s. Si se llama sincrónicamente aquí, bloquea el event loop entero:
-                # uvicorn no puede procesar frames WebSocket del frontend durante ese segundo,
-                # lo que causa que el browser cierre la conexión por inactividad y el loop
-                # reciba WebSocketDisconnect al llamar ws.receive_json() después.
-                loop = asyncio.get_running_loop()
-                porcupine = await loop.run_in_executor(
-                    None,
-                    lambda: PorcupineAdapter(access_key=settings.picovoice_access_key),
-                )
-                await loop.run_in_executor(None, porcupine.start_listening)
-                logger.info(f"[{session_id}] Porcupine wake word detection active")
-            else:
-                logger.info(
-                    f"[{session_id}] Porcupine disabled (no PICOVOICE_ACCESS_KEY). "
-                    "Wake word detection via manual trigger only."
-                )
-        except Exception as porch_err:
-            logger.warning(f"[{session_id}] Could not init Porcupine: {porch_err}")
+            from src.adapters.voice.open_wake_word_adapter import OpenWakeWordAdapter
+            loop = asyncio.get_running_loop()
+            oww = await loop.run_in_executor(None, OpenWakeWordAdapter)
+            logger.info(f"[{session_id}] OpenWakeWord detection active")
+        except Exception as oww_err:
+            logger.warning(
+                f"[{session_id}] Could not init OpenWakeWord: {oww_err}. "
+                "Wake word detection via Whisper fallback or manual trigger only."
+            )
 
         while self.running_loops.get(session_id, False):
             try:
@@ -460,7 +445,7 @@ class WebSocketManager:
 
                     # ── audio_chunk: wake word detection ─────────────────────
                     elif msg_type == "audio_chunk":
-                        await self._handle_audio_chunk(session_id, data, porcupine)
+                        await self._handle_audio_chunk(session_id, data, oww)
 
                     # ── wake_word_trigger: browser SpeechRecognition detected wake word ──
                     elif msg_type == "wake_word_trigger":
@@ -554,12 +539,8 @@ class WebSocketManager:
                 sentry_capture(e, session_id=session_id, context="handle_messages")
                 await asyncio.sleep(1)
 
-        # Cleanup Porcupine if running
-        if porcupine:
-            try:
-                porcupine.stop_listening()
-            except Exception:
-                pass
+        # Cleanup OpenWakeWord (no explicit stop needed — GC handles ONNX sessions)
+        oww = None
 
         logger.info(f"[{session_id}] Message handler loop stopped")
 
@@ -567,19 +548,19 @@ class WebSocketManager:
         self,
         session_id: str,
         data: dict,
-        porcupine,
+        oww,
     ) -> None:
         """
         Procesa un chunk de audio PCM para detección de wake word.
 
-        El frontend envía chunks de ~512 samples (Int16, 16kHz, mono)
-        codificados en base64. Porcupine procesa cada chunk y detecta
-        si se pronunció la wake word.
+        El frontend envía chunks de ~1280 samples (Int16, 16kHz, mono)
+        codificados en base64. OpenWakeWord procesa cada chunk de 2560 bytes
+        y detecta si se pronunció la wake word.
 
         Args:
             session_id: ID de la sesión
             data: Mensaje recibido con campo 'audio' (base64 PCM)
-            porcupine: Instancia de PorcupineAdapter (puede ser None)
+            oww: Instancia de OpenWakeWordAdapter (puede ser None)
         """
         state = self.assistant_states.get(session_id)
 
@@ -604,8 +585,8 @@ class WebSocketManager:
         if audio_bytes is None:
             return
 
-        # Si Porcupine no está disponible, acumular PCM para Whisper wake word
-        if porcupine is None:
+        # Si OpenWakeWord no está disponible, acumular PCM para Whisper wake word
+        if oww is None:
             if (
                 self._whisper_service
                 and state
@@ -624,29 +605,42 @@ class WebSocketManager:
                     )
             return
 
-        try:
-            detected = porcupine.detect_wake_word(audio_bytes)
-            if detected:
-                logger.info(f"[{session_id}] 🎙️ Wake word detected: '{detected}'")
+        # Acumular en buffer interno por sesión y drenar en chunks de 1280 samples (2560 bytes)
+        buf = self._wake_word_pcm_buffers.setdefault(session_id, bytearray())
+        buf.extend(audio_bytes)
 
-                # Cambiar estado a LISTENING
-                if state:
-                    state.start_listening()
+        _OWW_CHUNK = 2560  # 1280 samples × 2 bytes (Int16)
 
-                await self.send_event(
-                    session_id,
-                    self._make_event(
-                        EventType.WAKE_WORD_DETECTED.value,
-                        {
-                            "wake_word": detected,
-                            "timestamp": datetime.now().isoformat(),
-                        },
-                    ),
-                )
+        while len(buf) >= _OWW_CHUNK:
+            chunk = bytes(buf[:_OWW_CHUNK])
+            del buf[:_OWW_CHUNK]
 
-        except Exception as e:
-            logger.error(f"[{session_id}] Porcupine error: {e}")
-            sentry_capture(e, session_id=session_id, context="porcupine_detect")
+            try:
+                detected = oww.detect_wake_word(chunk)
+                if detected:
+                    logger.info(f"[{session_id}] Wake word detected (OpenWakeWord)")
+
+                    if state and state.mode not in (AssistantMode.LISTENING,):
+                        state.start_listening()
+
+                    await self.send_event(
+                        session_id,
+                        self._make_event(
+                            EventType.WAKE_WORD_DETECTED.value,
+                            {
+                                "wake_word": "hey atlas",
+                                "timestamp": datetime.now().isoformat(),
+                            },
+                        ),
+                    )
+                    # Limpiar buffer tras detección exitosa
+                    self._wake_word_pcm_buffers.pop(session_id, None)
+                    break
+
+            except Exception as e:
+                logger.error(f"[{session_id}] OpenWakeWord error: {e}")
+                sentry_capture(e, session_id=session_id, context="oww_detect")
+                break
 
     async def _check_whisper_wake_word(
         self, session_id: str, pcm_bytes: bytes, state
@@ -654,7 +648,7 @@ class WebSocketManager:
         """
         Transcribe un clip PCM de 3s con Whisper para detectar la wake word "atlas".
 
-        Solo se llama cuando Porcupine no está disponible.
+        Solo se llama cuando OpenWakeWord no está disponible.
         Filtra clips silenciosos por energía media antes de llamar a la API.
         """
         self._wake_word_checking[session_id] = True
@@ -750,6 +744,11 @@ class WebSocketManager:
                 pre_transcript = await self._whisper_service.transcribe_audio(
                     wav_bytes, language=None  # auto-detect language
                 )
+                if not pre_transcript or len(pre_transcript.strip()) < 2:
+                    logger.debug("[Voice] Empty transcription (silence/VAD filtered), ignoring")
+                    if state:
+                        state.reset_to_active()
+                    return
                 if pre_transcript and state:
                     state.language = _detect_language(pre_transcript)
                     logger.info(
@@ -866,7 +865,7 @@ class WebSocketManager:
                         ),
                     )
                     if result.get("has_audio"):
-                        logger.info(f"[{session_id}] 🔊 TTS audio sent (ElevenLabs)")
+                        logger.info(f"[{session_id}] 🔊 TTS audio sent")
                     else:
                         logger.info(f"[{session_id}] 🔊 TTS text sent (fallback)")
 
@@ -954,6 +953,41 @@ class WebSocketManager:
             if state and state.mode != AssistantMode.ACTIVE:
                 state.reset_to_active()
                 logger.debug(f"[{session_id}] Force-reset state to ACTIVE after voice pipeline")
+
+    # ── Screen capture loop ───────────────────────────────────────────────────
+
+    async def _screen_capture_loop(self, session_id: str) -> None:
+        """
+        Loop continuo que captura la pantalla primaria cada 3 segundos usando mss
+        y la envía al frontend como evento screen_capture.
+
+        Reemplaza el desktopCapturer de Electron — no requiere permisos de pantalla.
+        """
+        mss_adapter = MSSCaptureAdapter()
+        logger.info(f"[{session_id}] MSS screen capture loop started")
+
+        while self.running_loops.get(session_id, False):
+            try:
+                b64_image = await asyncio.get_event_loop().run_in_executor(
+                    None, mss_adapter.capture_primary_screen
+                )
+                await self.send_event(
+                    session_id,
+                    {
+                        "type": "screen_capture",
+                        "data": {
+                            "data": b64_image,
+                            "timestamp": datetime.now().isoformat(),
+                            "format": "jpeg",
+                        },
+                    },
+                )
+            except Exception as e:
+                logger.debug(f"[{session_id}] Screen capture error (non-fatal): {e}")
+
+            await asyncio.sleep(3)
+
+        logger.info(f"[{session_id}] MSS screen capture loop stopped")
 
     # ── State management ──────────────────────────────────────────────────────
 

@@ -145,7 +145,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   const isRecording  = audioMode === 'recording'
   const isProcessing = audioMode === 'processing'
-  const isListening  = audioMode === 'wake_word'
 
   return (
     <div className="chat-panel">

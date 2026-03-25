@@ -168,36 +168,39 @@ async def lifespan(app: FastAPI):
     event_bus.on(EventType.USER_MESSAGE_RECEIVED.value, handle_user_message)
     logger.info("✅ Chat message handler registered")
 
-    # ── Voice pipeline: Whisper + ElevenLabs ──────────────────────────────────
-    from src.adapters.voice.elevenlabs_adapter import ElevenLabsAdapter
-    from src.adapters.voice.whisper_adapter import WhisperAdapter
+    # ── Voice pipeline: FasterWhisper + Fish Audio / Edge-TTS ─────────────────
+    from src.adapters.voice.faster_whisper_adapter import FasterWhisperAdapter
+    from src.adapters.voice.fish_audio_adapter import FishAudioAdapter
+    from src.adapters.voice.edge_tts_adapter import EdgeTTSAdapter
     from src.application.use_cases.process_voice_command import \
         ProcessVoiceCommandUseCase
     from src.infrastructure.config.settings import get_settings
 
     settings = get_settings()
 
-    # Inicializar servicios de voz (solo si las keys están disponibles)
+    # Inicializar STT local (no requiere API key)
     whisper_service = None
     tts_service = None
 
-    if settings.openai_api_key:
-        try:
-            whisper_service = WhisperAdapter()
-            logger.info("✅ WhisperAdapter initialized (STT ready)")
-        except Exception as e:
-            logger.warning(f"⚠️  WhisperAdapter not available: {e}")
-    else:
-        logger.warning("⚠️  OPENAI_API_KEY not set — voice STT disabled")
+    try:
+        whisper_service = FasterWhisperAdapter(model_size="small")
+        logger.info("✅ FasterWhisperAdapter initialized (STT ready — local, no API key)")
+    except Exception as e:
+        logger.warning(f"⚠️  FasterWhisperAdapter not available: {e}")
 
-    if settings.elevenlabs_api_key:
+    # Inicializar TTS: Fish Audio si hay key, Edge-TTS gratuito como fallback
+    if settings.fish_audio_api_key:
         try:
-            tts_service = ElevenLabsAdapter()
-            logger.info("✅ ElevenLabsAdapter initialized (TTS ready)")
+            tts_service = FishAudioAdapter(api_key=settings.fish_audio_api_key)
+            logger.info("[TTS] Using Fish Audio")
         except Exception as e:
-            logger.warning(f"⚠️  ElevenLabsAdapter not available: {e}")
+            logger.warning(f"⚠️  FishAudioAdapter not available: {e}")
     else:
-        logger.warning("⚠️  ELEVENLABS_API_KEY not set — TTS disabled (text-only mode)")
+        try:
+            tts_service = EdgeTTSAdapter()
+            logger.info("[TTS] Using Edge-TTS (free fallback — set FISH_AUDIO_API_KEY for Fish Audio)")
+        except Exception as e:
+            logger.warning(f"⚠️  EdgeTTSAdapter not available: {e}")
 
     # Fábrica de use cases de voz: crea una instancia con el estado de la sesión
     # tool_executor se inyecta después de crearse, pero usamos closure para referenciarlo
@@ -217,9 +220,9 @@ async def lifespan(app: FastAPI):
         ws_manager.set_voice_use_case_factory(make_voice_use_case)
         ws_manager.set_whisper_service(whisper_service)
         logger.info("✅ Voice pipeline registered in WebSocketManager")
-        logger.info("✅ Whisper registered for wake word detection")
+        logger.info("✅ FasterWhisper registered for STT and wake word detection")
     else:
-        logger.warning("⚠️  Voice pipeline not registered (Whisper unavailable)")
+        logger.warning("⚠️  Voice pipeline not registered (FasterWhisper unavailable)")
 
     # ── Screen vision: Claude Haiku (reemplaza Tesseract) ─────────────────────
     import base64
