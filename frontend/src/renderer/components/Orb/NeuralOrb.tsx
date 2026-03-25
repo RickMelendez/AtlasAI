@@ -1,24 +1,21 @@
 /**
- * NeuralOrb — Crystal Shard JARVIS Orb
+ * NeuralOrb — Particle Constellation Orb
  *
- * The orb is built from ~80 glowing crystal shards (flat triangular prisms).
- * On state change it SHATTERS — shards fly outward, spin, then reassemble.
- * Each shard has an iridescent cyan/blue/white material that reacts to state.
+ * ~220 glowing nodes connected by faint energy lines, forming a sphere.
+ * On state transitions nodes scatter outward then magnetically snap back.
+ * Each state has a unique attractor shape the particles morph toward:
  *
- * States:
- *   inactive  — dim steel-blue shards, barely rotating
- *   active    — cyan glowing shards, slow breathe
- *   listening — white-hot shards pulse outward with voice level
- *   thinking  — purple shards, fast spin, random flicker
- *   speaking  — shards ripple outward in waves timed to speech
- *   paused    — amber shards, near-still
+ *   inactive  → dim sphere, slow drift
+ *   active    → bright sphere, gentle breathe
+ *   listening → nodes pull outward in rings, audio-reactive
+ *   thinking  → nodes warp into a torus
+ *   speaking  → nodes form radial spikes that pulse
+ *   paused    → amber nodes collapse to a tight dense sphere
  */
 
 import { useEffect, useRef, useCallback } from 'react'
 import * as THREE from 'three'
 import './OrbCanvas.css'
-
-// ── Types ──────────────────────────────────────────────────────────────────────
 
 export interface NeuralOrbProps {
   state: 'inactive' | 'active' | 'listening' | 'thinking' | 'speaking' | 'paused'
@@ -26,261 +23,247 @@ export interface NeuralOrbProps {
   audioLevel?: number
 }
 
-interface ShardData {
-  mesh:         THREE.Mesh
-  homePos:      THREE.Vector3   // rest position on orb surface
-  homeQuat:     THREE.Quaternion
-  flyDir:       THREE.Vector3   // normalized outward direction for shatter
-  flyDist:      number          // how far it flies (randomized)
-  flyQuat:      THREE.Quaternion // random tumble rotation
-  phase:        number          // 0..1 animation phase
-  waveDelay:    number          // per-shard delay for wave effects
-  index:        number
+// ── State config ───────────────────────────────────────────────────────────────
+
+interface StateConfig {
+  color:       string
+  glowColor:   string
+  emissive:    number
+  rotSpeed:    number
+  pulseHz:     number
+  scatterForce:number  // 0 = no scatter, >0 = scatter on enter
+  lineOpacity: number
 }
 
-interface OrbStateConfig {
-  rotSpeed:   number
-  primaryHex: string
-  accentHex:  string
-  glowHex:    string
-  emissive:   number   // emissiveIntensity multiplier
-  pulseHz:    number
-  shatterOnEnter: boolean
-}
-
-// ── State configs ──────────────────────────────────────────────────────────────
-
-const STATES: Record<string, OrbStateConfig> = {
-  inactive: { rotSpeed: 0.15, primaryHex: '#1a3a5c', accentHex: '#2a5a8c', glowHex: '#1E6090', emissive: 0.15, pulseHz: 0,    shatterOnEnter: false },
-  active:   { rotSpeed: 0.4,  primaryHex: '#00C4E8', accentHex: '#00EEFF', glowHex: '#00D9FF', emissive: 0.7,  pulseHz: 0.35, shatterOnEnter: false },
-  listening:{ rotSpeed: 0.7,  primaryHex: '#80FFFF', accentHex: '#FFFFFF', glowHex: '#00FFFF', emissive: 1.0,  pulseHz: 1.4,  shatterOnEnter: true  },
-  thinking: { rotSpeed: 1.8,  primaryHex: '#8B3FFF', accentHex: '#B87FFF', glowHex: '#7B2FFF', emissive: 0.9,  pulseHz: 0,    shatterOnEnter: true  },
-  speaking: { rotSpeed: 0.9,  primaryHex: '#00D9FF', accentHex: '#FFFFFF', glowHex: '#00D9FF', emissive: 1.1,  pulseHz: 0,    shatterOnEnter: true  },
-  paused:   { rotSpeed: 0.08, primaryHex: '#CC7A00', accentHex: '#FFA500', glowHex: '#FF8C00', emissive: 0.3,  pulseHz: 0.12, shatterOnEnter: false },
+const STATES: Record<string, StateConfig> = {
+  inactive: { color:'#1a4a7a', glowColor:'#1a5296', emissive:0.15, rotSpeed:0.12, pulseHz:0,    scatterForce:0,   lineOpacity:0.06 },
+  active:   { color:'#00C4E8', glowColor:'#00D9FF', emissive:0.6,  rotSpeed:0.35, pulseHz:0.3,  scatterForce:0,   lineOpacity:0.12 },
+  listening:{ color:'#80FFFF', glowColor:'#00FFFF', emissive:1.0,  rotSpeed:0.6,  pulseHz:1.2,  scatterForce:0.4, lineOpacity:0.18 },
+  thinking: { color:'#9B4FFF', glowColor:'#7B2FFF', emissive:0.85, rotSpeed:1.6,  pulseHz:0,    scatterForce:0.7, lineOpacity:0.09 },
+  speaking: { color:'#AAFFFF', glowColor:'#00D9FF', emissive:1.1,  rotSpeed:0.8,  pulseHz:0,    scatterForce:0.5, lineOpacity:0.15 },
+  paused:   { color:'#CC7A00', glowColor:'#FF8C00', emissive:0.3,  rotSpeed:0.06, pulseHz:0.12, scatterForce:0,   lineOpacity:0.05 },
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function lerp(a: number, b: number, t: number) { return a + (b - a) * t }
-
 function lerpColor(a: THREE.Color, b: THREE.Color, t: number) {
-  return new THREE.Color(lerp(a.r, b.r, t), lerp(a.g, b.g, t), lerp(a.b, b.b, t))
+  return new THREE.Color(lerp(a.r,b.r,t), lerp(a.g,b.g,t), lerp(a.b,b.b,t))
+}
+function easeOutElastic(t: number) {
+  if (t === 0 || t === 1) return t
+  return Math.pow(2, -10*t) * Math.sin((t*10 - 0.75) * (2*Math.PI) / 3) + 1
+}
+// Fibonacci sphere — even distribution
+function fibSphere(n: number, r: number): THREE.Vector3[] {
+  const pts: THREE.Vector3[] = []
+  const phi = Math.PI * (3 - Math.sqrt(5))
+  for (let i = 0; i < n; i++) {
+    const y = 1 - (i / (n - 1)) * 2
+    const radius = Math.sqrt(1 - y * y)
+    const theta = phi * i
+    pts.push(new THREE.Vector3(Math.cos(theta) * radius * r, y * r, Math.sin(theta) * radius * r))
+  }
+  return pts
 }
 
-function easeInOutCubic(t: number) {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+// Torus attractor
+function torusPos(i: number, n: number, R = 1.3, r = 0.55): THREE.Vector3 {
+  const u = (i / n) * Math.PI * 2
+  const v = (i * 7 / n) * Math.PI * 2
+  return new THREE.Vector3(
+    (R + r * Math.cos(v)) * Math.cos(u),
+    (R + r * Math.cos(v)) * Math.sin(u),
+    r * Math.sin(v)
+  )
 }
 
-function easeOutBack(t: number) {
-  const c1 = 1.70158, c3 = c1 + 1
-  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2)
+// Spiky sphere (speaking)
+function spikyPos(i: number, n: number, baseR: number): THREE.Vector3 {
+  const phi = Math.PI * (3 - Math.sqrt(5))
+  const y = 1 - (i / (n-1)) * 2
+  const radius = Math.sqrt(Math.max(0, 1 - y*y))
+  const theta = phi * i
+  const spike = 1 + 0.45 * Math.pow(Math.abs(Math.cos(theta * 3)), 3)
+  return new THREE.Vector3(
+    Math.cos(theta) * radius * baseR * spike,
+    y * baseR * spike,
+    Math.sin(theta) * radius * baseR * spike
+  )
 }
 
-// Build shard geometry: flat elongated triangle prism (crystal facet shape)
-function buildShardGeometry(w: number, h: number, depth: number): THREE.BufferGeometry {
-  // Triangle top/bottom face, 3 rectangular sides
-  const hw = w * 0.5
-  const hh = h * 0.5
-  const hd = depth * 0.5
-
-  // Slight asymmetry for crystal look
-  const ox = (Math.random() - 0.5) * w * 0.3
-  const oy = (Math.random() - 0.5) * h * 0.3
-
-  const verts = new Float32Array([
-    // top face (z = +hd)
-    ox - hw,  oy + hh,  hd,
-    ox + hw,  oy + hh,  hd,
-    ox,       oy - hh,  hd,
-    // bottom face (z = -hd)
-    ox - hw,  oy + hh, -hd,
-    ox + hw,  oy + hh, -hd,
-    ox,       oy - hh, -hd,
-  ])
-
-  const indices = new Uint16Array([
-    0, 1, 2,       // top
-    3, 5, 4,       // bottom (flipped winding)
-    0, 3, 1,  1, 3, 4,  // side 1
-    1, 4, 2,  2, 4, 5,  // side 2
-    2, 5, 0,  0, 5, 3,  // side 3
-  ])
-
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3))
-  geo.setIndex(new THREE.BufferAttribute(indices, 1))
-  geo.computeVertexNormals()
-  return geo
+// Tight dense sphere (paused)
+function densePos(i: number, n: number): THREE.Vector3 {
+  return fibSphere(n, 0.7)[i]
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-const SHARD_COUNT = 80
-const ORB_RADIUS  = 1.4
+const NODE_COUNT = 220
+const BASE_RADIUS = 1.45
+const LINE_DIST = 0.52   // connect nodes closer than this
 
 export const NeuralOrb: React.FC<NeuralOrbProps> = ({ state, onClick, audioLevel = 0 }) => {
-  const containerRef  = useRef<HTMLDivElement>(null)
-  const rendererRef   = useRef<THREE.WebGLRenderer | null>(null)
-  const sceneRef      = useRef<THREE.Scene | null>(null)
-  const cameraRef     = useRef<THREE.PerspectiveCamera | null>(null)
-  const animFrameRef  = useRef<number>(0)
-  const groupRef      = useRef<THREE.Group | null>(null)       // orbits Y
-  const shardsRef     = useRef<ShardData[]>([])
+  const containerRef = useRef<HTMLDivElement>(null)
+  const rendererRef  = useRef<THREE.WebGLRenderer | null>(null)
+  const sceneRef     = useRef<THREE.Scene | null>(null)
+  const cameraRef    = useRef<THREE.PerspectiveCamera | null>(null)
+  const animFrameRef = useRef<number>(0)
+  const groupRef     = useRef<THREE.Group | null>(null)
 
-  // Animation state refs
-  const timeRef           = useRef(0)
-  const rotSpeedRef       = useRef(0.4)
-  const targetRotSpeedRef = useRef(0.4)
-  const audioLevelRef     = useRef(0)
-  const stateRef          = useRef<string>('active')
+  // Node positions
+  const homePosRef    = useRef<THREE.Vector3[]>([])   // sphere home
+  const targetPosRef  = useRef<THREE.Vector3[]>([])   // shape attractor
+  const currentPosRef = useRef<THREE.Vector3[]>([])   // live interpolated
 
-  // Color refs
-  const curPrimaryRef  = useRef(new THREE.Color('#00C4E8'))
-  const curAccentRef   = useRef(new THREE.Color('#00EEFF'))
-  const tgtPrimaryRef  = useRef(new THREE.Color('#00C4E8'))
-  const tgtAccentRef   = useRef(new THREE.Color('#00EEFF'))
-  const glowColorRef   = useRef('#00D9FF')
-  const emissiveRef    = useRef(0.7)
-  const targetEmissiveRef = useRef(0.7)
-  const pulseHzRef     = useRef(0.35)
-  const targetPulseHzRef = useRef(0.35)
+  // Scatter state per node
+  type NodeAnim = { flying: boolean; flyPos: THREE.Vector3; flyV: THREE.Vector3; assembleT: number }
+  const nodeAnimRef = useRef<NodeAnim[]>([])
 
-  // Shatter animation
-  const isShatteringRef   = useRef(false)
-  const shatterPhaseRef   = useRef(0)   // 0=idle, >0=flying out, >0.5=reassembling
-  const SHATTER_DURATION  = 0.9         // seconds total for full shatter+reassemble
+  // Points geometry
+  const pointsRef  = useRef<THREE.Points | null>(null)
+  const lineSegRef = useRef<THREE.LineSegments | null>(null)
 
-  // ── Build shards ─────────────────────────────────────────────────────────────
+  // Animation refs
+  const timeRef          = useRef(0)
+  const rotSpeedRef      = useRef(0.35)
+  const tgtRotSpeedRef   = useRef(0.35)
+  const pulseHzRef       = useRef(0.3)
+  const tgtPulseHzRef    = useRef(0.3)
+  const curColorRef      = useRef(new THREE.Color('#00C4E8'))
+  const tgtColorRef      = useRef(new THREE.Color('#00C4E8'))
+  const emissiveRef      = useRef(0.6)
+  const tgtEmissiveRef   = useRef(0.6)
+  const lineOpacityRef   = useRef(0.12)
+  const tgtLineOpacityRef= useRef(0.12)
+  const glowColorRef     = useRef('#00D9FF')
+  const stateRef         = useRef<string>('active')
+  const audioLevelRef    = useRef(0)
 
-  const buildShards = useCallback((scene: THREE.Scene, group: THREE.Group) => {
-    // Remove existing
-    shardsRef.current.forEach(s => group.remove(s.mesh))
-    shardsRef.current = []
+  // ── Setup ──────────────────────────────────────────────────────────────────
 
-    // Fibonacci sphere distribution for even coverage
-    const goldenAngle = Math.PI * (3 - Math.sqrt(5))
-
-    for (let i = 0; i < SHARD_COUNT; i++) {
-      const t = i / (SHARD_COUNT - 1)
-      const inclination = Math.acos(1 - 2 * t)
-      const azimuth = goldenAngle * i
-
-      const x = Math.sin(inclination) * Math.cos(azimuth)
-      const y = Math.sin(inclination) * Math.sin(azimuth)
-      const z = Math.cos(inclination)
-
-      const surfacePos = new THREE.Vector3(x, y, z).multiplyScalar(ORB_RADIUS)
-
-      // Shard size: vary with latitude for visual interest
-      const latFactor = 0.6 + 0.4 * Math.abs(y)
-      const w = (0.12 + Math.random() * 0.1) * latFactor
-      const h = (0.22 + Math.random() * 0.14) * latFactor
-      const d = 0.05 + Math.random() * 0.04
-
-      const geo = buildShardGeometry(w, h, d)
-
-      const mat = new THREE.MeshPhongMaterial({
-        color:          new THREE.Color('#00C4E8'),
-        emissive:       new THREE.Color('#003A5C'),
-        emissiveIntensity: 0.7,
-        shininess:      120,
-        specular:       new THREE.Color('#AAFFFF'),
-        transparent:    true,
-        opacity:        0.82 + Math.random() * 0.15,
-        side:           THREE.DoubleSide,
-      })
-
-      const mesh = new THREE.Mesh(geo, mat)
-      mesh.position.copy(surfacePos)
-
-      // Orient so shard face points outward from center
-      const outward = surfacePos.clone().normalize()
-      const up = new THREE.Vector3(0, 1, 0)
-      const axis = new THREE.Vector3().crossVectors(up, outward).normalize()
-      const angle = Math.acos(Math.max(-1, Math.min(1, up.dot(outward))))
-      const homeQuat = angle < 0.001
-        ? new THREE.Quaternion()
-        : new THREE.Quaternion().setFromAxisAngle(axis, angle)
-      mesh.quaternion.copy(homeQuat)
-
-      // Random tumble quaternion for shatter
-      const flyQuat = new THREE.Quaternion(
-        (Math.random() - 0.5) * 2,
-        (Math.random() - 0.5) * 2,
-        (Math.random() - 0.5) * 2,
-        1,
-      ).normalize()
-
-      group.add(mesh)
-
-      shardsRef.current.push({
-        mesh,
-        homePos:   surfacePos.clone(),
-        homeQuat:  homeQuat.clone(),
-        flyDir:    outward.clone(),
-        flyDist:   2.5 + Math.random() * 2.5,
-        flyQuat,
-        phase:     0,
-        waveDelay: i / SHARD_COUNT,
-        index:     i,
-      })
-    }
-
-    void scene // keep linter happy
+  const initNodes = useCallback(() => {
+    const sphere = fibSphere(NODE_COUNT, BASE_RADIUS)
+    homePosRef.current   = sphere.map(v => v.clone())
+    targetPosRef.current = sphere.map(v => v.clone())
+    currentPosRef.current = sphere.map(v => v.clone())
+    nodeAnimRef.current = sphere.map(() => ({
+      flying: false,
+      flyPos: new THREE.Vector3(),
+      flyV:   new THREE.Vector3(),
+      assembleT: 1,
+    }))
   }, [])
 
-  // ── Scene setup ───────────────────────────────────────────────────────────────
+  const buildLines = useCallback((positions: Float32Array) => {
+    // Build adjacency from current node positions
+    const lineVerts: number[] = []
+    const n = NODE_COUNT
+    for (let i = 0; i < n; i++) {
+      const ax = positions[i*3], ay = positions[i*3+1], az = positions[i*3+2]
+      for (let j = i+1; j < n; j++) {
+        const dx = positions[j*3]-ax, dy = positions[j*3+1]-ay, dz = positions[j*3+2]-az
+        if (dx*dx+dy*dy+dz*dz < LINE_DIST*LINE_DIST) {
+          lineVerts.push(ax,ay,az, positions[j*3],positions[j*3+1],positions[j*3+2])
+        }
+      }
+    }
+    return new Float32Array(lineVerts)
+  }, [])
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
+    initNodes()
+
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.setClearColor(0x000000, 0)
     rendererRef.current = renderer
-
-    const w = container.clientWidth  || 400
+    const w = container.clientWidth || 400
     const h = container.clientHeight || 400
     renderer.setSize(w, h)
     container.appendChild(renderer.domElement)
 
     const scene = new THREE.Scene()
     sceneRef.current = scene
-
-    const camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 100)
-    camera.position.z = 4.0
+    const camera = new THREE.PerspectiveCamera(52, w/h, 0.1, 100)
+    camera.position.z = 4.2
     cameraRef.current = camera
 
-    // Lighting — dramatic 3-point for crystal refraction
-    const ambient = new THREE.AmbientLight(0x0a1a2e, 0.6)
-    scene.add(ambient)
-
-    const keyLight = new THREE.PointLight(0x00D9FF, 3.0, 12)
-    keyLight.position.set(3, 3, 4)
-    scene.add(keyLight)
-
-    const fillLight = new THREE.PointLight(0x7B2FFF, 1.5, 10)
-    fillLight.position.set(-3, -1, 2)
-    scene.add(fillLight)
-
-    const rimLight = new THREE.PointLight(0xFFFFFF, 1.2, 8)
-    rimLight.position.set(0, -3, -3)
-    scene.add(rimLight)
-
-    // Group that rotates
     const group = new THREE.Group()
     scene.add(group)
     groupRef.current = group
 
-    buildShards(scene, group)
+    // ── Points (nodes) ───────────────────────────────────────────────────────
+    const pointGeo = new THREE.BufferGeometry()
+    const posArr = new Float32Array(NODE_COUNT * 3)
+    currentPosRef.current.forEach((v,i) => { posArr[i*3]=v.x; posArr[i*3+1]=v.y; posArr[i*3+2]=v.z })
+    pointGeo.setAttribute('position', new THREE.BufferAttribute(posArr, 3))
 
-    // Resize observer
+    // Size variation per node
+    const sizes = new Float32Array(NODE_COUNT).map(() => 4 + Math.random() * 5)
+    pointGeo.setAttribute('size', new THREE.BufferAttribute(sizes, 1))
+
+    const pointMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uColor:   { value: new THREE.Color('#00C4E8') },
+        uOpacity: { value: 1.0 },
+      },
+      vertexShader: `
+        attribute float size;
+        varying float vAlpha;
+        void main() {
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = size * (300.0 / -mvPosition.z);
+          gl_Position = projectionMatrix * mvPosition;
+          vAlpha = 0.6 + 0.4 * smoothstep(4.0, 9.0, size);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform float uOpacity;
+        varying float vAlpha;
+        void main() {
+          float d = length(gl_PointCoord - vec2(0.5));
+          if (d > 0.5) discard;
+          // Soft glow falloff
+          float alpha = (1.0 - smoothstep(0.1, 0.5, d)) * vAlpha * uOpacity;
+          gl_FragColor = vec4(uColor + vec3(0.3) * (1.0 - d*2.0), alpha);
+        }
+      `,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+
+    const points = new THREE.Points(pointGeo, pointMat)
+    group.add(points)
+    pointsRef.current = points
+
+    // ── Line segments (connections) ───────────────────────────────────────────
+    const lineVerts = buildLines(posArr)
+    const lineGeo = new THREE.BufferGeometry()
+    lineGeo.setAttribute('position', new THREE.BufferAttribute(lineVerts, 3))
+
+    const lineMat = new THREE.LineBasicMaterial({
+      color: new THREE.Color('#00D9FF'),
+      transparent: true,
+      opacity: 0.12,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+    const lines = new THREE.LineSegments(lineGeo, lineMat)
+    group.add(lines)
+    lineSegRef.current = lines
+
+    // ── Resize ────────────────────────────────────────────────────────────────
     const onResize = () => {
-      const cw = container.clientWidth  || 400
+      const cw = container.clientWidth || 400
       const ch = container.clientHeight || 400
       renderer.setSize(cw, ch)
-      camera.aspect = cw / ch
+      camera.aspect = cw/ch
       camera.updateProjectionMatrix()
     }
     const ro = new ResizeObserver(onResize)
@@ -291,7 +274,6 @@ export const NeuralOrb: React.FC<NeuralOrbProps> = ({ state, onClick, audioLevel
 
     const animate = (ts: number) => {
       animFrameRef.current = requestAnimationFrame(animate)
-
       const dtMs = lastTs === null ? 16 : Math.min(ts - lastTs, 50)
       lastTs = ts
       const dt = dtMs / 1000
@@ -301,114 +283,111 @@ export const NeuralOrb: React.FC<NeuralOrbProps> = ({ state, onClick, audioLevel
       const curState = stateRef.current
       const al = audioLevelRef.current
 
-      // Lerp values
-      rotSpeedRef.current   = lerp(rotSpeedRef.current,   targetRotSpeedRef.current,  dt * 3)
-      emissiveRef.current   = lerp(emissiveRef.current,   targetEmissiveRef.current,  dt * 2)
-      pulseHzRef.current    = lerp(pulseHzRef.current,    targetPulseHzRef.current,   dt * 2)
-      curPrimaryRef.current = lerpColor(curPrimaryRef.current, tgtPrimaryRef.current, dt * 2.5)
-      curAccentRef.current  = lerpColor(curAccentRef.current,  tgtAccentRef.current,  dt * 2.5)
+      // Lerp global values
+      rotSpeedRef.current  = lerp(rotSpeedRef.current,  tgtRotSpeedRef.current,  dt*3)
+      pulseHzRef.current   = lerp(pulseHzRef.current,   tgtPulseHzRef.current,   dt*2)
+      emissiveRef.current  = lerp(emissiveRef.current,  tgtEmissiveRef.current,  dt*2.5)
+      lineOpacityRef.current = lerp(lineOpacityRef.current, tgtLineOpacityRef.current, dt*2)
+      curColorRef.current  = lerpColor(curColorRef.current, tgtColorRef.current, dt*2.5)
+
+      // Global breathe scale
+      const hz = pulseHzRef.current
+      let globScale = 1.0
+      if (hz > 0) globScale += Math.sin(t * hz * Math.PI * 2) * 0.03
+      globScale += al * 0.1
 
       // Group rotation
-      if (groupRef.current) {
-        groupRef.current.rotation.y += rotSpeedRef.current * dt
-        groupRef.current.rotation.x += rotSpeedRef.current * 0.25 * dt
+      if (group) {
+        group.rotation.y += rotSpeedRef.current * dt
+        group.rotation.x += rotSpeedRef.current * 0.2 * dt
       }
 
-      // Pulse scale (breathing)
-      const hz = pulseHzRef.current
-      let orbScale = 1.0
-      if (hz > 0) orbScale += Math.sin(t * hz * Math.PI * 2) * 0.035
-      orbScale += al * 0.12  // audio reactive
+      // Update node positions
+      const posAttr = (points.geometry.getAttribute('position') as THREE.BufferAttribute)
+      const posData = posAttr.array as Float32Array
 
-      // Shatter animation
-      if (isShatteringRef.current) {
-        shatterPhaseRef.current += dt / SHATTER_DURATION
-        if (shatterPhaseRef.current >= 1) {
-          shatterPhaseRef.current = 0
-          isShatteringRef.current = false
-        }
-      }
+      for (let i = 0; i < NODE_COUNT; i++) {
+        const anim = nodeAnimRef.current[i]
+        const home = targetPosRef.current[i]
+        const cur  = currentPosRef.current[i]
 
-      // Update each shard
-      shardsRef.current.forEach((shard) => {
-        const mat = shard.mesh.material as THREE.MeshPhongMaterial
-
-        if (isShatteringRef.current) {
-          const phase = shatterPhaseRef.current
-
-          if (phase < 0.45) {
-            // Flying out — staggered by waveDelay
-            const localStart = shard.waveDelay * 0.25
-            const flyT = Math.max(0, Math.min(1, (phase - localStart) / 0.35))
-            const eased = easeInOutCubic(flyT)
-
-            const flyPos = shard.homePos.clone()
-              .add(shard.flyDir.clone().multiplyScalar(eased * shard.flyDist))
-            shard.mesh.position.copy(flyPos.multiplyScalar(orbScale))
-
-            // Tumble rotation
-            shard.mesh.quaternion.slerpQuaternions(shard.homeQuat, shard.flyQuat, eased)
-
-            // Flash bright on launch
-            mat.emissiveIntensity = emissiveRef.current + eased * 1.5
-            mat.opacity = lerp(0.9, 0.2, eased * eased)
-
-          } else {
-            // Reassemble — staggered in reverse
-            const localStart = (1 - shard.waveDelay) * 0.25
-            const reassembleOffset = 0.45
-            const assembleT = Math.max(0, Math.min(1, (phase - reassembleOffset - localStart) / 0.45))
-            const eased = easeOutBack(assembleT)
-
-            // From fly position back to home
-            const flyPos = shard.homePos.clone()
-              .add(shard.flyDir.clone().multiplyScalar((1 - eased) * shard.flyDist))
-            shard.mesh.position.copy(flyPos.multiplyScalar(orbScale))
-
-            shard.mesh.quaternion.slerpQuaternions(shard.flyQuat, shard.homeQuat, eased)
-
-            mat.emissiveIntensity = emissiveRef.current + (1 - eased) * 0.8
-            mat.opacity = lerp(0.2, 0.82, eased)
+        if (anim.flying) {
+          // Scatter phase: fly outward
+          anim.flyPos.addScaledVector(anim.flyV, dt)
+          // Drag
+          anim.flyV.multiplyScalar(0.92)
+          // Check if velocity is low enough → start assembling
+          if (anim.flyV.lengthSq() < 0.002) {
+            anim.flying = false
+            anim.assembleT = 0
+            anim.flyPos.copy(cur) // start from current fly position
           }
-
+          cur.copy(anim.flyPos)
+        } else if (anim.assembleT < 1) {
+          // Reassemble with elastic spring
+          anim.assembleT = Math.min(1, anim.assembleT + dt * 2.2)
+          const eased = easeOutElastic(anim.assembleT)
+          cur.lerpVectors(anim.flyPos, home.clone().multiplyScalar(globScale), eased)
         } else {
-          // Normal: rest at home position with scale + wave effects
-          let shardScale = orbScale
+          // At rest: snap to target with gentle drift
+          cur.lerp(home.clone().multiplyScalar(globScale), dt * 4)
 
-          // Speaking: radial wave ripple
-          if (curState === 'speaking') {
-            const wavePhase = ((t * 1.2) - shard.waveDelay * 0.8) % 1
-            const ripple = Math.max(0, Math.sin(wavePhase * Math.PI))
-            shardScale += ripple * 0.18
-          }
-
-          // Thinking: per-shard random flicker
-          if (curState === 'thinking') {
-            const flicker = 0.85 + 0.15 * Math.sin(t * 23.7 + shard.index * 1.337)
-            mat.emissiveIntensity = emissiveRef.current * flicker
-          } else {
-            mat.emissiveIntensity = lerp(mat.emissiveIntensity, emissiveRef.current, dt * 3)
-          }
-
-          // Listening: shards slightly separate with audio level
+          // State-specific motion
           if (curState === 'listening') {
-            shardScale += al * 0.15 * (0.8 + 0.2 * Math.sin(shard.index * 0.7))
+            // Nodes pulse outward in latitude bands with audio
+            const lat = Math.abs(home.y / BASE_RADIUS)
+            const wave = Math.sin(t * 2.5 + lat * 8) * 0.06 * (1 + al * 1.5)
+            cur.addScaledVector(home.clone().normalize(), wave)
           }
 
-          shard.mesh.position.copy(shard.homePos.clone().multiplyScalar(shardScale))
-          shard.mesh.quaternion.copy(shard.homeQuat)
+          if (curState === 'thinking') {
+            // Per-node orbit wobble
+            const phase = i * 0.137 + t * 3.1
+            cur.x += Math.sin(phase) * 0.006
+            cur.y += Math.cos(phase * 0.7) * 0.006
+          }
 
-          mat.color.copy(curPrimaryRef.current)
-          mat.emissive.copy(curPrimaryRef.current).multiplyScalar(0.35)
-          mat.opacity = lerp(mat.opacity, 0.82, dt * 3)
+          if (curState === 'speaking') {
+            // Radial spike wave — propagates from top to bottom
+            const lat = (home.y / BASE_RADIUS + 1) * 0.5
+            const wave = Math.sin(t * 4.0 - lat * 10) * 0.1 * (0.5 + al * 1.2)
+            cur.addScaledVector(home.clone().normalize(), wave)
+          }
         }
-      })
+
+        posData[i*3]   = cur.x
+        posData[i*3+1] = cur.y
+        posData[i*3+2] = cur.z
+      }
+
+      posAttr.needsUpdate = true
+
+      // Rebuild lines every 3rd frame (performance: ~20fps line update)
+      if (Math.round(t * 60) % 3 === 0 && lineSegRef.current) {
+        const newLineVerts = buildLines(posData)
+        const lineGeoObj = lineSegRef.current.geometry
+        const existing = lineGeoObj.getAttribute('position') as THREE.BufferAttribute | undefined
+        if (!existing || existing.array.length !== newLineVerts.length) {
+          lineGeoObj.setAttribute('position', new THREE.BufferAttribute(newLineVerts, 3))
+        } else {
+          ;(existing.array as Float32Array).set(newLineVerts)
+          existing.needsUpdate = true
+        }
+      }
+
+      // Update materials
+      const pMat = points.material as THREE.ShaderMaterial
+      pMat.uniforms.uColor.value.copy(curColorRef.current)
+
+      if (lineSegRef.current) {
+        const lMat = lineSegRef.current.material as THREE.LineBasicMaterial
+        lMat.color.copy(curColorRef.current)
+        lMat.opacity = lineOpacityRef.current
+      }
 
       // CSS glow
-      if (container) {
-        const glowIntensity = 30 + emissiveRef.current * 20 + al * 15
-        container.style.filter = `drop-shadow(0 0 ${glowIntensity}px ${glowColorRef.current})`
-      }
+      const glow = 25 + emissiveRef.current * 18 + al * 12
+      container.style.filter = `drop-shadow(0 0 ${glow}px ${glowColorRef.current})`
 
       renderer.render(scene, camera)
     }
@@ -421,41 +400,69 @@ export const NeuralOrb: React.FC<NeuralOrbProps> = ({ state, onClick, audioLevel
       renderer.dispose()
       if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement)
     }
-  }, [buildShards])
+  }, [initNodes, buildLines])
 
-  // ── React to state changes ────────────────────────────────────────────────────
+  // ── State change handler ─────────────────────────────────────────────────
 
   useEffect(() => {
     const cfg = STATES[state] ?? STATES.active
     const prev = stateRef.current
     stateRef.current = state
 
-    targetRotSpeedRef.current   = cfg.rotSpeed
-    tgtPrimaryRef.current       = new THREE.Color(cfg.primaryHex)
-    tgtAccentRef.current        = new THREE.Color(cfg.accentHex)
-    glowColorRef.current        = cfg.glowHex
-    targetEmissiveRef.current   = cfg.emissive
-    targetPulseHzRef.current    = cfg.pulseHz
+    tgtRotSpeedRef.current   = cfg.rotSpeed
+    tgtColorRef.current      = new THREE.Color(cfg.color)
+    glowColorRef.current     = cfg.glowColor
+    tgtEmissiveRef.current   = cfg.emissive
+    tgtPulseHzRef.current    = cfg.pulseHz
+    tgtLineOpacityRef.current= cfg.lineOpacity
 
-    // Trigger shatter on qualifying transitions
-    if (cfg.shatterOnEnter && prev !== state && !isShatteringRef.current) {
-      isShatteringRef.current = true
-      shatterPhaseRef.current = 0
+    // Compute new target shape
+    const newTargets = (() => {
+      switch(state) {
+        case 'thinking': return Array.from({length:NODE_COUNT},(_,i)=>torusPos(i,NODE_COUNT))
+        case 'speaking': return Array.from({length:NODE_COUNT},(_,i)=>spikyPos(i,NODE_COUNT,BASE_RADIUS))
+        case 'paused':   return Array.from({length:NODE_COUNT},(_,i)=>densePos(i,NODE_COUNT))
+        default:         return fibSphere(NODE_COUNT, BASE_RADIUS)
+      }
+    })()
+    targetPosRef.current = newTargets
+
+    // Trigger scatter on qualifying transitions
+    if (cfg.scatterForce > 0 && prev !== state) {
+      const force = cfg.scatterForce
+      nodeAnimRef.current.forEach((anim, i) => {
+        const cur = currentPosRef.current[i]
+        anim.flying = true
+        anim.assembleT = 0
+        anim.flyPos.copy(cur)
+        // Direction: outward from center + random tangent
+        const outward = cur.clone().normalize()
+        const rand = new THREE.Vector3(
+          (Math.random()-0.5)*2,
+          (Math.random()-0.5)*2,
+          (Math.random()-0.5)*2
+        ).normalize()
+        anim.flyV
+          .copy(outward)
+          .addScaledVector(rand, 0.4)
+          .multiplyScalar(force * (1 + Math.random() * 0.8))
+        // Stagger: nodes at index end fly first
+        const delay = (i / NODE_COUNT) * 0.08
+        setTimeout(() => {
+          if (!anim.flying) return // already done
+        }, delay * 1000)
+      })
     }
   }, [state])
 
-  // ── Sync audioLevel ───────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    audioLevelRef.current = audioLevel
-  }, [audioLevel])
+  useEffect(() => { audioLevelRef.current = audioLevel }, [audioLevel])
 
   return (
     <div
       ref={containerRef}
       className="orb-canvas-container"
       onClick={onClick}
-      style={{ width: '100%', height: '100%' }}
+      style={{ width:'100%', height:'100%' }}
     />
   )
 }

@@ -740,9 +740,10 @@ class WebSocketManager:
             # ── 1. Transcribir con Whisper (auto-detect idioma) ────────────
             pre_transcript = None
             if self._whisper_service:
-                wav_bytes = self._pcm16_to_wav(audio_bytes)
+                # Pass audio bytes directly — frontend sends WebM/Opus, not raw PCM.
+                # DO NOT wrap in WAV header; faster-whisper accepts WebM natively.
                 pre_transcript = await self._whisper_service.transcribe_audio(
-                    wav_bytes, language=None  # auto-detect language
+                    audio_bytes, language=None  # auto-detect language
                 )
                 if not pre_transcript or len(pre_transcript.strip()) < 2:
                     logger.debug("[Voice] Empty transcription (silence/VAD filtered), ignoring")
