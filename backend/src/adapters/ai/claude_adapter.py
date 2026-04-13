@@ -550,24 +550,24 @@ class ClaudeAdapter(AIService):
         language: str = "es",
     ):
         """
-        Genera una respuesta en streaming (para futuras mejoras).
+        Generates a streaming response (for future improvements).
 
         Args:
-            user_message: Mensaje del usuario
-            conversation_history: Historial
-            screen_context: Contexto de pantalla
-            language: Idioma
+            user_message: User message
+            conversation_history: Conversation history
+            screen_context: Screen context
+            language: Language
 
         Yields:
-            Chunks de texto de la respuesta
+            Text chunks of the response
         """
         try:
-            # Construir system prompt
+            # Build system prompt
             system_prompt = get_master_prompt(language)
             if screen_context:
                 system_prompt += f"\n\n## Screen Context\n\n{screen_context}"
 
-            # Construir mensajes
+            # Build messages
             messages: List[MessageParam] = []
             if conversation_history:
                 for msg in conversation_history[-10:]:
@@ -579,7 +579,7 @@ class ClaudeAdapter(AIService):
                     )
             messages.append({"role": "user", "content": user_message})
 
-            # Stream de Claude
+            # Stream from Claude
             async with self.client.messages.stream(
                 model=self.model,
                 max_tokens=self.default_max_tokens,
@@ -593,6 +593,48 @@ class ClaudeAdapter(AIService):
         except Exception as e:
             logger.error(f"Error in streaming response: {e}")
             yield f"[Error: {str(e)}]"
+
+    async def generate_proactive_help(
+        self,
+        screen_description: str,
+        language: str = "en",
+    ) -> Optional[str]:
+        """
+        Generate proactive help based on screen description.
+
+        Used when errors are detected on screen to offer unsolicited assistance.
+
+        Args:
+            screen_description: Description of screen content from vision
+            language: Language code
+
+        Returns:
+            Help suggestion text or None
+        """
+        try:
+            proactive_prompt = get_proactive_help_prompt(language)
+
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=256,
+                temperature=0.5,
+                system=proactive_prompt,
+                messages=[{"role": "user", "content": screen_description}],
+            )
+
+            suggestion = self._extract_text_from_response(response).strip()
+
+            # If Claude says null or empty, don't offer help
+            if suggestion.lower() == "null" or not suggestion:
+                logger.info("No proactive help needed")
+                return None
+
+            logger.info(f"Offering proactive help: {suggestion[:50]}...")
+            return suggestion
+
+        except Exception as e:
+            logger.error(f"Error generating proactive help: {e}")
+            return None
 
 
 # Singleton instance

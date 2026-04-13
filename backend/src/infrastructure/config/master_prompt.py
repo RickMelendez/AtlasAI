@@ -303,3 +303,51 @@ Rules:
 
 If you decide to offer help, respond with a brief, natural suggestion.
 If you should NOT offer help, respond with just: null"""
+
+
+def get_master_prompt_with_memory(language: str = "es", memories: list = None) -> str:
+    """
+    Get the master prompt with injected long-term memory section.
+
+    Args:
+        language: Language code ("es" or "en")
+        memories: List of memory strings to inject
+
+    Returns:
+        Master prompt with memory section inserted
+    """
+    if memories is None:
+        memories = []
+
+    base_prompt = get_master_prompt(language)
+
+    if not memories:
+        return base_prompt
+
+    memory_section = _format_memory_section(language, memories)
+    insertion_point = base_prompt.find("## Tu Personalidad y Estilo") if language == "es" else base_prompt.find("## Your Personality and Style")
+
+    if insertion_point == -1:
+        return base_prompt + "\n\n" + memory_section
+
+    return base_prompt[:insertion_point] + memory_section + "\n\n" + base_prompt[insertion_point:]
+
+
+def _format_memory_section(language: str, memories: list) -> str:
+    """
+    Format the memory section for injection into the master prompt.
+
+    Args:
+        language: Language code ("es" or "en")
+        memories: List of memory strings
+
+    Returns:
+        Formatted memory section
+    """
+    if language == "es":
+        header = "## Memoria a Largo Plazo\n\nRecuerda estos hechos sobre el usuario:"
+    else:
+        header = "## Long-term Memory\n\nRemember these facts about the user:"
+
+    formatted_memories = "\n".join(f"- {m}" for m in memories)
+    return f"{header}\n{formatted_memories}"

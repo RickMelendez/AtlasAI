@@ -1,20 +1,24 @@
 """
 Atlas AI Backend - FastAPI Application.
 
-Este es el punto de entrada principal del backend de Atlas AI.
-Configura FastAPI, CORS, y registra todos los routers.
+Main entry point for Atlas AI backend. Configures FastAPI, CORS,
+event handlers, and application lifecycle using AppContainer for
+proper dependency injection.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.infrastructure.api.routes import websocket
+from src.infrastructure.api.routes import websocket, settings as settings_routes
 from src.infrastructure.config.settings import get_settings
+from src.infrastructure.container import AppContainer
 
-# Configurar logging
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -23,7 +27,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# ── Sentry: initialise BEFORE the app object is created ────────────────────
+# Initialize Sentry BEFORE app creation
 from src.infrastructure.monitoring.sentry import init_sentry as _init_sentry
 
 _settings = get_settings()
@@ -33,233 +37,196 @@ _init_sentry(
     release="atlas-ai@0.1.0",
 )
 
+# Global container instance
+container: Optional[AppContainer] = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Lifespan context manager para FastAPI.
+    FastAPI lifespan context manager.
 
-    Maneja la inicialización y limpieza de recursos
-    al iniciar y cerrar la aplicación.
+    Handles initialization and cleanup of resources when the app
+    starts and shuts down. Uses AppContainer for proper dependency injection.
     """
+    global container
+
     # Startup
     logger.info("🚀 Atlas AI Backend starting up...")
+    container = AppContainer()
+    await container.initialize()
 
-    # Inicializar base de datos (CREATE TABLE IF NOT EXISTS)
-    from src.infrastructure.database import init_db
-
-    await init_db()
-
-    logger.info("✅ Event Bus initialized")
-    logger.info("✅ WebSocket Manager initialized")
-
-    # Registrar event handlers
-    from src.adapters.ai.claude_adapter import ClaudeAdapter
-    from src.application.use_cases.process_chat_message import \
-        ProcessChatMessageUseCase
+    # Register event handlers
     from src.infrastructure.events.event_bus import event_bus
     from src.infrastructure.events.event_types import EventType
     from src.infrastructure.websocket.manager import ws_manager
-
     from src.domain.entities.conversation import Conversation
     from src.domain.entities.message import Message, MessageRole
     from src.infrastructure.database import AsyncSessionFactory
-    from src.infrastructure.database.repositories.conversation_repository import \
-        SQLiteConversationRepository
+    from src.infrastructure.database.repositories.conversation_repository import (
+        SQLiteConversationRepository,
+    )
 
-    # Inicializar servicios
-    claude_service = ClaudeAdapter()
-    chat_use_case = ProcessChatMessageUseCase(claude_service)
-
-    # Handler para mensajes de chat
+    # Handler for text chat messages
     async def handle_user_message(data: dict):
-        """Procesa mensajes de chat del usuario."""
+        """Process text chat messages from user."""
+        import time as _time_mod
         session_id = data.get("session_id")
         message = data.get("message")
-        screen_context = data.get("screen_context")  # ← inyectado por manager.py
+        screen_context = data.get("screen_context")
 
         if not session_id or not message:
             logger.warning("Invalid user message data received")
             return
 
-        # Obtener estado del asistente
         state = ws_manager.get_state(session_id)
         if not state:
             logger.warning(f"No state found for session {session_id}")
             return
 
-        # Cargar historial de conversación desde la BD (per-session)
+        # ── "Forget everything" command ─────────────────────────────────────
+        if message.strip().lower() in ("forget everything", "forget it all", "clear memory"):
+            try:
+                from src.infrastructure.database.repositories.memory_repository import (
+                    MemoryRepository,
+                )
+                async with AsyncSessionFactory() as db_session:
+                    async with db_session.begin():
+                        mem_repo = MemoryRepository(db_session)
+                        count = await mem_repo.delete_all_memories()
+                logger.info(f"[{session_id}] Cleared {count} memories on user request")
+                await ws_manager.send_event(
+                    session_id,
+                    {
+                        "type": EventType.AI_RESPONSE_GENERATED.value,
+                        "data": {
+                            "message": f"Done — I've forgotten everything ({count} memories cleared).",
+                            "timestamp": _time_mod.strftime("%Y-%m-%dT%H:%M:%SZ", _time_mod.gmtime()),
+                        },
+                    },
+                )
+            except Exception as forget_err:
+                logger.error(f"[{session_id}] Error clearing memories: {forget_err}")
+            return
+
+        # Load conversation history from database (single session)
         conversation_history = None
         try:
             async with AsyncSessionFactory() as session:
                 async with session.begin():
                     repo = SQLiteConversationRepository(session)
-                    conversation = await repo.get_active_conversation_by_session(session_id)
+                    conversation = (
+                        await repo.get_active_conversation_by_session(session_id)
+                    )
                     if conversation:
-                        db_messages = await repo.get_last_n_messages(conversation.id, n=10)
-                        conversation_history = [msg.to_claude_format() for msg in db_messages]
+                        db_messages = await repo.get_last_n_messages(
+                            conversation.id, n=10
+                        )
+                        conversation_history = [
+                            msg.to_claude_format() for msg in db_messages
+                        ]
                         logger.info(
                             f"[{session_id}] Loaded {len(conversation_history)} messages from DB"
                         )
         except Exception as db_err:
             logger.error(f"[{session_id}] DB history load error: {db_err}", exc_info=True)
-            # No fallar el request por un error de BD — continuar sin historial
 
-        # Procesar mensaje y generar respuesta (con contexto de pantalla e historial)
-        result = await chat_use_case.execute(
-            message, state, screen_context=screen_context, conversation_history=conversation_history
-        )
+        # ── Streaming response (token-by-token, like ChatGPT) ────────────────
+        # Accumulate full text while streaming so we can persist it afterward
+        full_response = ""
+        try:
+            async for chunk in container.claude.generate_streaming_response(
+                user_message=message,
+                conversation_history=conversation_history,
+                screen_context=screen_context,
+                language=state.language if hasattr(state, "language") else "en",
+            ):
+                full_response += chunk
+                await ws_manager.send_event(
+                    session_id,
+                    {
+                        "type": "ai_response_chunk",
+                        "data": {"chunk": chunk, "done": False},
+                    },
+                )
+            # Signal end of stream
+            await ws_manager.send_event(
+                session_id,
+                {
+                    "type": "ai_response_chunk",
+                    "data": {"chunk": "", "done": True},
+                },
+            )
+        except Exception as stream_err:
+            logger.error(f"[{session_id}] Streaming error: {stream_err}", exc_info=True)
+            # Fall back to non-streaming if streaming fails
+            try:
+                result = await container.chat_use_case.execute(
+                    message, state,
+                    screen_context=screen_context,
+                    conversation_history=conversation_history,
+                )
+                full_response = result.get("response", "")
+                await ws_manager.send_event(
+                    session_id,
+                    {
+                        "type": EventType.AI_RESPONSE_GENERATED.value,
+                        "data": {
+                            "message": full_response,
+                            "timestamp": result.get("timestamp"),
+                            "error": result.get("error", False),
+                        },
+                    },
+                )
+            except Exception as fallback_err:
+                logger.error(f"[{session_id}] Fallback response error: {fallback_err}")
+            return
 
-        # Persistir intercambio en la BD
-        if result and not result.get("error"):
+        # Persist exchange to database
+        if full_response:
             try:
                 async with AsyncSessionFactory() as session:
                     async with session.begin():
                         repo = SQLiteConversationRepository(session)
-                        # Obtener o crear conversación
                         conv = await repo.get_active_conversation_by_session(session_id)
                         if not conv:
-                            conv = Conversation(session_id=session_id, language="es")
+                            conv = Conversation(session_id=session_id, language="en")
                             await repo.create_conversation(conv)
-                        # Guardar mensaje del usuario
                         user_msg = Message(
                             conversation_id=conv.id,
                             role=MessageRole.USER,
                             content=message,
                         )
                         await repo.add_message(user_msg)
-                        # Guardar respuesta del asistente
                         assistant_msg = Message(
                             conversation_id=conv.id,
                             role=MessageRole.ASSISTANT,
-                            content=result["response"],
+                            content=full_response,
                         )
                         await repo.add_message(assistant_msg)
                         conv.touch()
                         await repo.update_conversation(conv)
                         logger.info(f"[{session_id}] Persisted exchange to DB (conv={conv.id})")
             except Exception as db_err:
-                logger.error(f"[{session_id}] DB persistence error: {db_err}", exc_info=True)
-                # No fallar el request por un error de BD — el usuario recibió su respuesta
+                logger.error(
+                    f"[{session_id}] DB persistence error: {db_err}", exc_info=True
+                )
 
-        # Enviar screenshots de herramientas al frontend (si los hay)
-        screenshots = getattr(claude_service, "_last_tool_screenshots", [])
-        for b64 in screenshots:
-            await ws_manager.send_event(
-                session_id,
-                {"type": "tool_screenshot", "data": {"image": b64}},
-            )
-        claude_service._last_tool_screenshots = []
-
-        # Enviar respuesta al frontend
-        await ws_manager.send_event(
-            session_id,
-            {
-                "type": EventType.AI_RESPONSE_GENERATED.value,
-                "data": {
-                    "message": result["response"],
-                    "timestamp": result["timestamp"],
-                    "error": result.get("error", False),
-                },
-            },
-        )
-
-    # Registrar handler en el event bus
+    # Register handler
     event_bus.on(EventType.USER_MESSAGE_RECEIVED.value, handle_user_message)
     logger.info("✅ Chat message handler registered")
 
-    # ── Voice pipeline: FasterWhisper + ElevenLabs / Fish Audio / Edge-TTS ──────
-    from src.adapters.voice.faster_whisper_adapter import FasterWhisperAdapter
-    from src.adapters.voice.elevenlabs_adapter import ElevenLabsAdapter
-    from src.adapters.voice.fish_audio_adapter import FishAudioAdapter
-    from src.adapters.voice.edge_tts_adapter import EdgeTTSAdapter
-    from src.application.use_cases.process_voice_command import \
-        ProcessVoiceCommandUseCase
-    from src.infrastructure.config.settings import get_settings
-
-    settings = get_settings()
-
-    # Inicializar STT local (no requiere API key)
-    whisper_service = None
-    tts_service = None
-
-    try:
-        whisper_service = FasterWhisperAdapter(model_size="small")
-        logger.info("✅ FasterWhisperAdapter initialized (STT ready — local, no API key)")
-    except Exception as e:
-        logger.warning(f"⚠️  FasterWhisperAdapter not available: {e}")
-
-    # Inicializar TTS: ElevenLabs → Fish Audio → Edge-TTS (fallback gratuito)
-    if settings.elevenlabs_api_key:
-        try:
-            tts_service = ElevenLabsAdapter(
-                api_key=settings.elevenlabs_api_key,
-                voice_id=settings.elevenlabs_voice_id or None,
-            )
-            logger.info("[TTS] Using ElevenLabs")
-        except Exception as e:
-            logger.warning(f"⚠️  ElevenLabsAdapter not available: {e}")
-
-    if tts_service is None and settings.fish_audio_api_key:
-        try:
-            tts_service = FishAudioAdapter(
-                api_key=settings.fish_audio_api_key,
-                voice_id=settings.fish_audio_voice_id or None,
-            )
-            logger.info("[TTS] Using Fish Audio")
-        except Exception as e:
-            logger.warning(f"⚠️  FishAudioAdapter not available: {e}")
-
-    if tts_service is None:
-        try:
-            tts_service = EdgeTTSAdapter()
-            logger.info("[TTS] Using Edge-TTS (free fallback)")
-        except Exception as e:
-            logger.warning(f"⚠️  EdgeTTSAdapter not available: {e}")
-
-    # Fábrica de use cases de voz: crea una instancia con el estado de la sesión
-    # tool_executor se inyecta después de crearse, pero usamos closure para referenciarlo
-    _tool_executor_ref: dict = {"executor": None}
-
-    def make_voice_use_case(assistant_state):
-        return ProcessVoiceCommandUseCase(
-            voice_service=whisper_service,
-            ai_service=claude_service,
-            assistant_state=assistant_state,
-            tts_service=tts_service,
-            tool_executor=_tool_executor_ref["executor"],
-        )
-
-    # Inyectar fábrica en el WebSocket manager
-    if whisper_service:
-        ws_manager.set_voice_use_case_factory(make_voice_use_case)
-        ws_manager.set_whisper_service(whisper_service)
-        logger.info("✅ Voice pipeline registered in WebSocketManager")
-        logger.info("✅ FasterWhisper registered for STT and wake word detection")
-    else:
-        logger.warning("⚠️  Voice pipeline not registered (FasterWhisper unavailable)")
-
-    # ── Screen vision: Claude Haiku (reemplaza Tesseract) ─────────────────────
+    # Handler for screen context (proactive help detection)
     import base64
     import time as _time
 
-    from src.adapters.vision.claude_vision_adapter import ClaudeVisionAdapter
-
-    screen_service = ClaudeVisionAdapter()
-
-    # Debounce: solo llamar a Claude Haiku Vision cada 10 segundos como máximo.
-    # Se eliminó analyze_screen_use_case (que hacía una segunda llamada a Claude Sonnet
-    # por cada "error detectado") para reducir el consumo de API a ~6 llamadas/min.
     _last_vision_call: dict = {"ts": 0.0}
     _VISION_DEBOUNCE_SECS = 10.0
+    _PROACTIVE_LAST_TRIGGER: dict = {"ts": 0.0}
+    _PROACTIVE_COOLDOWN_SECS = 60.0
 
     async def handle_screen_context_updated(data: dict):
-        """
-        Procesa un frame de pantalla con Claude Haiku vision (solo descripción).
-
-        Solo ejecuta la llamada de visión para obtener la descripción de pantalla
-        que se inyecta en el contexto de Atlas. No hace análisis adicional de errores.
-        """
+        """Process screen frames with Claude Vision and detect errors."""
         session_id = data.get("session_id")
         screenshot_b64 = data.get("screenshot_data", "")
 
@@ -273,62 +240,125 @@ async def lifespan(app: FastAPI):
 
         try:
             screenshot_bytes = base64.b64decode(screenshot_b64)
-            await screen_service.extract_text_from_image(screenshot_bytes)
-            if hasattr(screen_service, "last_screen_description"):
-                ws_manager.update_screen_context(
-                    session_id, screen_service.last_screen_description
-                )
+            await container.screen_service.extract_text_from_image(screenshot_bytes)
+            if hasattr(container.screen_service, "last_screen_description"):
+                description = container.screen_service.last_screen_description
+                ws_manager.update_screen_context(session_id, description)
+
+                # Proactive error detection with cooldown
+                if description and any(
+                    indicator in description.lower()
+                    for indicator in ["error", "exception", "traceback", "warning"]
+                ):
+                    state = ws_manager.get_state(session_id)
+                    now_proactive = _time.monotonic()
+                    if (
+                        state
+                        and state.mode.value == "active"
+                        and now_proactive - _PROACTIVE_LAST_TRIGGER["ts"]
+                        > _PROACTIVE_COOLDOWN_SECS
+                    ):
+                        _PROACTIVE_LAST_TRIGGER["ts"] = now_proactive
+                        await event_bus.emit(
+                            EventType.PROACTIVE_HELP_TRIGGERED.value,
+                            {"session_id": session_id, "description": description},
+                        )
+                        logger.info(f"[{session_id}] Proactive help triggered")
         except Exception as e:
             logger.error(f"[{session_id}] Screen vision error: {e}")
 
     event_bus.on(EventType.SCREEN_CONTEXT_UPDATED.value, handle_screen_context_updated)
     logger.info("✅ Screen capture handler registered")
 
-    # ── Tool use: Playwright + Notion + ToolExecutor ───────────────────────────
-    from src.adapters.notion.notion_adapter import NotionAdapter
-    from src.adapters.tools.tool_executor import ToolExecutor
-    from src.adapters.web.playwright_adapter import PlaywrightAdapter
+    # Handler for proactive help trigger
+    async def handle_proactive_help_triggered(data: dict):
+        """Generate proactive help and send to frontend."""
+        session_id = data.get("session_id")
+        description = data.get("description")
 
-    playwright_adapter = PlaywrightAdapter()
-    await playwright_adapter.start()
+        if not session_id or not description:
+            return
 
-    notion_adapter = NotionAdapter()
-    tool_executor = ToolExecutor(playwright_adapter, notion_adapter)
+        try:
+            help_text = await container.claude.generate_proactive_help(description)
+            if help_text:
+                await ws_manager.send_event(
+                    session_id,
+                    {
+                        "type": EventType.AI_RESPONSE_GENERATED.value,
+                        "data": {
+                            "message": help_text,
+                            "proactive": True,
+                        },
+                    },
+                )
+                # Generate TTS audio if available
+                if container.tts:
+                    try:
+                        audio_b64 = await container.tts.synthesize(help_text)
+                        await ws_manager.send_event(
+                            session_id,
+                            {
+                                "type": "tts_audio",
+                                "data": {
+                                    "audio_b64": audio_b64,
+                                    "format": "mp3",
+                                },
+                            },
+                        )
+                    except Exception as tts_err:
+                        logger.warning(f"[{session_id}] TTS error for proactive help: {tts_err}")
+        except Exception as e:
+            logger.error(f"[{session_id}] Proactive help error: {e}")
 
-    ws_manager.set_tool_executor(tool_executor)
-    # Actualizar la referencia del closure de la fábrica de voz
-    _tool_executor_ref["executor"] = tool_executor
-    # Inyectar en el chat use case también
-    chat_use_case.tool_executor = tool_executor
-    logger.info("✅ Tool executor registered (browser, terminal, files, Notion)")
+    event_bus.on(
+        EventType.PROACTIVE_HELP_TRIGGERED.value, handle_proactive_help_triggered
+    )
+    logger.info("✅ Proactive help handler registered")
+
+    # Inject container into WebSocket manager
+    if container.whisper:
+        ws_manager.set_voice_use_case_factory(container.make_voice_use_case)
+        ws_manager.set_whisper_service(container.whisper)
+        logger.info("✅ Voice pipeline registered")
+    else:
+        logger.warning("⚠️  Voice pipeline not registered (FasterWhisper unavailable)")
+
+    ws_manager.set_tool_executor(container.tool_executor)
+    logger.info("✅ Tool executor registered")
 
     yield
+
     # Shutdown
     logger.info("🛑 Atlas AI Backend shutting down...")
-    await playwright_adapter.stop()
+    await container.shutdown()
 
 
-# Crear aplicación FastAPI
+# Create FastAPI app
 app = FastAPI(
     title="Atlas AI Visual Companion API",
     description=(
-        "Backend API para Atlas AI - Un asistente visual AI que funciona como "
-        "un compañero tech-savvy siempre presente."
+        "Backend API for Atlas AI - An AI visual assistant that acts as "
+        "a tech-savvy companion."
     ),
     version="0.1.0",
     lifespan=lifespan,
 )
 
-# Configurar CORS
+# Configure CORS - allow localhost + any production origins set via env
+_base_origins = [
+    "http://localhost:8000",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+]
+_extra = os.environ.get("CORS_ORIGINS", "")
+_allowed_origins = _base_origins + [o.strip() for o in _extra.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # React dev server
-        "http://localhost:5173",  # Vite dev server
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-        "*",  # En desarrollo permitir todos
-    ],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -338,12 +368,7 @@ app.add_middleware(
 # Health check endpoint
 @app.get("/health")
 async def health_check():
-    """
-    Health check endpoint.
-
-    Returns:
-        Estado del servidor y versión
-    """
+    """Health check endpoint."""
     return {
         "status": "healthy",
         "service": "Atlas AI Backend",
@@ -359,30 +384,93 @@ async def health_check():
 
 @app.get("/")
 async def root():
-    """
-    Root endpoint con información del API.
-
-    Returns:
-        Mensaje de bienvenida y endpoints disponibles
-    """
+    """Root endpoint with API information."""
     return {
         "message": "Atlas AI Backend API",
-        "description": "Sistema event-driven con WebSocket continuo",
+        "description": "Event-driven system with continuous WebSocket",
         "version": "0.1.0",
         "endpoints": {
             "health": "/health",
             "websocket": "/api/ws",
-            "websocket_health": "/api/ws/health",
+            "settings": "/api/settings",
+            "memories": "/api/memories",
             "docs": "/docs",
         },
     }
 
 
-# Registrar routers
+# Memory endpoints
+@app.get("/api/memories")
+async def get_memories():
+    """Get all stored memories."""
+    try:
+        from src.infrastructure.database import AsyncSessionFactory
+        from src.infrastructure.database.repositories.memory_repository import (
+            MemoryRepository,
+        )
+
+        async with AsyncSessionFactory() as session:
+            repo = MemoryRepository(session)
+            memories = await repo.get_all_memories()
+            return {
+                "memories": [
+                    {"id": m.id, "content": m.content, "source": m.source}
+                    for m in memories
+                ]
+            }
+    except Exception as e:
+        logger.error(f"Failed to get memories: {e}")
+        return {"memories": []}
+
+
+@app.delete("/api/memories/{memory_id}")
+async def delete_memory(memory_id: int):
+    """Delete a single memory by ID."""
+    try:
+        from src.infrastructure.database import AsyncSessionFactory
+        from src.infrastructure.database.repositories.memory_repository import (
+            MemoryRepository,
+        )
+
+        async with AsyncSessionFactory() as session:
+            async with session.begin():
+                repo = MemoryRepository(session)
+                deleted = await repo.delete_memory(memory_id)
+        if deleted:
+            return {"deleted": True, "id": memory_id}
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Memory not found")
+    except Exception as e:
+        logger.error(f"Failed to delete memory {memory_id}: {e}")
+        raise
+
+
+@app.delete("/api/memories")
+async def delete_all_memories():
+    """Delete all memories."""
+    try:
+        from src.infrastructure.database import AsyncSessionFactory
+        from src.infrastructure.database.repositories.memory_repository import (
+            MemoryRepository,
+        )
+
+        async with AsyncSessionFactory() as session:
+            async with session.begin():
+                repo = MemoryRepository(session)
+                count = await repo.delete_all_memories()
+                logger.info(f"Deleted {count} memories")
+        return {"deleted": count}
+    except Exception as e:
+        logger.error(f"Failed to delete memories: {e}")
+        raise
+
+
+# Register routers
 app.include_router(websocket.router, prefix="/api", tags=["websocket"])
+app.include_router(settings_routes.router, prefix="/api", tags=["settings"])
 
 
-# Punto de entrada para uvicorn
+# Entry point for uvicorn
 if __name__ == "__main__":
     import uvicorn
 

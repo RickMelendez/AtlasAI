@@ -44,6 +44,14 @@ class EventType(str, Enum):
     WEBSOCKET_CONNECTED = "websocket_connected"
     WEBSOCKET_DISCONNECTED = "websocket_disconnected"
 
+    # Eventos de memoria
+    MEMORY_SAVED = "memory_saved"
+    MEMORY_CLEARED = "memory_cleared"
+    MEMORIES_UPDATED = "memories_updated"
+
+    # Eventos proactivos
+    PROACTIVE_HELP_TRIGGERED = "proactive_help_triggered"
+
 
 # Constantes de eventos como strings para uso directo
 WAKE_WORD_DETECTED = EventType.WAKE_WORD_DETECTED.value
@@ -52,3 +60,7 @@ SCREEN_CONTEXT_UPDATED = EventType.SCREEN_CONTEXT_UPDATED.value
 ERROR_DETECTED = EventType.ERROR_DETECTED.value
 USER_FRUSTRATED = EventType.USER_FRUSTRATED.value
 CONVERSATION_MESSAGE = EventType.CONVERSATION_MESSAGE.value
+MEMORY_SAVED = EventType.MEMORY_SAVED.value
+MEMORY_CLEARED = EventType.MEMORY_CLEARED.value
+MEMORIES_UPDATED = EventType.MEMORIES_UPDATED.value
+PROACTIVE_HELP_TRIGGERED = EventType.PROACTIVE_HELP_TRIGGERED.value

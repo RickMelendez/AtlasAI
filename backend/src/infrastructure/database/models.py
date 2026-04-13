@@ -149,6 +149,28 @@ class ScreenContextModel(Base):
         return f"<ScreenContext id={self.id} app={self.app_name} session={self.session_id}>"
 
 
+class MemoryModel(Base):
+    """
+    Tabla ORM para memoria a largo plazo.
+
+    Almacena hechos y preferencias del usuario que deben persistir
+    entre sesiones para proporcionar un contexto personalizado.
+    """
+
+    __tablename__ = "memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)  # The fact to remember
+    source: Mapped[str] = mapped_column(String(20), default="user")  # "user" | "auto"
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    def __repr__(self) -> str:
+        return f"<Memory id={self.id} source={self.source}>"
+
+
 # ─── Índices adicionales ──────────────────────────────────────────────────────
 
 Index(
