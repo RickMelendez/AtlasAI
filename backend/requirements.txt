@@ -10,14 +10,8 @@ anthropic==0.42.0
 # Local STT (no API key required — downloads ~466MB model on first run)
 faster-whisper>=1.0.0
 
-# Wake Word Detection (MIT, fully local, no API key)
-openwakeword>=0.6.0
-
 # TTS
 edge-tts>=6.1.9
-
-# Screen capture (replaces Electron desktopCapturer)
-mss>=9.0.0
 
 # Vision (Claude Haiku via anthropic SDK — no binary deps required)
 Pillow==11.0.0
