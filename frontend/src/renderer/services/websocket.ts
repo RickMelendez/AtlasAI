@@ -33,7 +33,9 @@ class WebSocketService {
    *
    * @param url - URL del endpoint WebSocket (default: ws://localhost:8000/api/ws)
    */
-  constructor(url: string = 'ws://localhost:8000/api/ws') {
+  constructor(
+    url: string = (import.meta.env.VITE_WS_URL as string | undefined) ?? 'ws://localhost:8000/api/ws'
+  ) {
     this.url = url;
     console.log('[WebSocket] Service initialized with URL:', this.url);
   }

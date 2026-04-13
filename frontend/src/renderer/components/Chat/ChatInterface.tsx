@@ -1,8 +1,8 @@
 /**
- * ChatInterface — Atlas AI
- * Clean transcript feed. No bubbles, no mic button.
- * Atlas messages: left accent bar + monospace text.
- * User messages: right-aligned, italic, muted.
+ * ChatInterface — Clean transcript feed for Atlas AI
+ * Messages with support for streaming responses
+ * Assistant messages display content with timestamp and copy button
+ * User messages appear right-aligned and italicized
  */
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
@@ -11,13 +11,14 @@ import { Loader }  from '../ui/loader'
 import PromptInput from '../ui/prompt-input-dynamic-grow'
 import './ChatInterface.css'
 
-// ── Types ──────────────────────────────────────────────────────────────────────
+// Types ──────────────────────────────────────────────────────────────────────
 
 export interface Message {
   id:        string
   content:   string
-  role:      'user' | 'assistant'
+  role:      'user' | 'assistant' | 'tool_screenshot'
   timestamp: Date
+  streaming?: boolean
 }
 
 export interface ChatInterfaceProps {
@@ -27,7 +28,7 @@ export interface ChatInterfaceProps {
   audioMode?:     AudioCaptureMode
 }
 
-// ── Markdown helpers ───────────────────────────────────────────────────────────
+// Markdown helpers ───────────────────────────────────────────────────────────
 
 function formatMessage(content: string): React.ReactNode {
   const parts = content.split(/(```[\s\S]*?```)/g)
@@ -85,7 +86,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   )
 }
 
-// ── Component ──────────────────────────────────────────────────────────────────
+// Component ──────────────────────────────────────────────────────────────────
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   messages      = [],
@@ -127,7 +128,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   return (
     <div className="chat-panel">
-      {/* Close */}
+      {/* Close button ──────────────────────────────────────────────────────── */}
       <button className="chat-close" onClick={onClose} title="Close">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
           <line x1="18" y1="6" x2="6" y2="18"/>
@@ -135,7 +136,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </svg>
       </button>
 
-      {/* ── Messages ──────────────────────────────────────────────────────── */}
+      {/* Messages ─────────────────────────────────────────────────────── */}
       <div
         className="chat-messages"
         ref={messagesContainerRef}
@@ -176,12 +177,18 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             }
 
             // Assistant message
-            const isThinking = isProcessing && msg === messages[messages.length - 1]
+            // isThinking = streaming placeholder before any text arrives
+            const isThinking = msg.streaming && !msg.content
+
             return (
-              <div key={msg.id} className="msg msg--assistant">
+              <div key={msg.id} className={`msg msg--assistant${msg.streaming ? ' msg--streaming' : ''}`}>
                 <div className="msg-label">atlas</div>
                 <div className="msg-text">
-                  {isThinking ? <Loader variant="typing" size="sm" /> : formatMessage(msg.content)}
+                  {isThinking ? (
+                    <Loader variant="typing" size="sm" />
+                  ) : (
+                    formatMessage(msg.content)
+                  )}
                 </div>
                 <div className="msg-time">
                   {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -220,7 +227,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         </button>
       )}
 
-      {/* ── Input area ────────────────────────────────────────────────────── */}
+      {/* Input area ────────────────────────────────────────────────────── */}
       <div className="chat-input-area">
         <div className="chat-input-row">
           <PromptInput
