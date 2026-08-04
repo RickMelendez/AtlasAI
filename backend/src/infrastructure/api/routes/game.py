@@ -11,6 +11,7 @@ como si el personaje estuviera hablando — sin apps externas.
 
 import base64
 import logging
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -157,8 +158,15 @@ async def game_chat(request: Request, body: GameChatRequest):
         )
 
     except Exception as e:
-        logger.error(f"[game/chat] Error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Raw exception text must never reach the client — it can leak
+        # internals (stack traces, file paths, API error bodies). Log it
+        # server-side keyed to a correlation ID, return only that ID.
+        error_id = uuid.uuid4().hex[:8]
+        logger.error(f"[game/chat] Error ({error_id}): {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error (ref: {error_id})",
+        )
 
 
 @router.get("/health")
