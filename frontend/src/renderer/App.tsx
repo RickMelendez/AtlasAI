@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { MessageSquare, Brain, Settings } from 'lucide-react'
+import { MessageSquare, Brain, Settings, Moon } from 'lucide-react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useAudioCapture } from './hooks/useAudioCapture'
 import { useTTSPlayer } from './hooks/useTTSPlayer'
@@ -17,6 +17,7 @@ import { ChatInterface } from './components/Chat/ChatInterface'
 import { MemoryPanel } from './components/Memory/MemoryPanel'
 import { SettingsPanel } from './components/Settings/SettingsPanel'
 import { Toast } from './components/ui/Toast'
+import { withApiKeyHeader } from './services/apiKey'
 import type { Message } from './components/Chat/ChatInterface'
 import type { Memory } from './components/Memory/MemoryPanel'
 import './App.css'
@@ -35,7 +36,7 @@ type WsEventType =
   | 'ai_response_generated' | 'ai_response_chunk'
   | 'tts_audio' | 'tool_screenshot'
   | 'ui_command' | 'error_detected'
-  | 'memories_updated'
+  | 'memories_updated' | 'stop_tts'
 
 interface AIResponseChunkData {
   chunk: string
@@ -53,6 +54,7 @@ interface UICommandData {
 interface AIResponseData {
   message: string
   timestamp?: string
+  transcription?: string
 }
 
 interface ToolScreenshotData {
@@ -76,6 +78,7 @@ function App() {
   const { isConnected, send, on, off } = useWebSocket()
 
   const [assistantState, setAssistantState] = useState<string>('active')
+  const [isSleeping, setIsSleeping] = useState(false)
   const [openPanel, setOpenPanel] = useState<PanelType>(null)
   const [messages, setMessages] = useState<StreamingMessage[]>([])
   const [memories, setMemories] = useState<Memory[]>([])
@@ -95,7 +98,7 @@ function App() {
 
   // ── Load memories on mount ────────────────────────────────────────────────
   useEffect(() => {
-    fetch(`${API_BASE}/api/memories`)
+    fetch(`${API_BASE}/api/memories`, withApiKeyHeader())
       .then(r => r.json())
       .then(json => setMemories(json.memories ?? []))
       .catch(() => {/* backend not up yet — silent fail */})
@@ -115,6 +118,7 @@ function App() {
 
   // ── Voice callbacks ───────────────────────────────────────────────────────
   const onWakeWord = useCallback((_w: string) => {
+    stopPlaybackRef.current()   // barge-in: kill TTS when user starts talking
     setAssistantState('listening')
   }, [])
 
@@ -134,20 +138,29 @@ function App() {
   })
 
   // ── TTS playback ──────────────────────────────────────────────────────────
-  useTTSPlayer({ onPlayStart: onTTSStart, onPlayEnd: onTTSEnd })
+  const { stopPlayback } = useTTSPlayer({ onPlayStart: onTTSStart, onPlayEnd: onTTSEnd })
 
-  // Sync orb state with audio mode
+  // Keep a stable ref so audio callbacks can access stopPlayback without stale closures
+  const stopPlaybackRef = useRef(stopPlayback)
+  useEffect(() => { stopPlaybackRef.current = stopPlayback }, [stopPlayback])
+
+  // Sync orb state with audio mode + barge-in on VAD-triggered recording
   useEffect(() => {
     if (!isCapturing) return
     if (audioMode === 'wake_word') setAssistantState('active')
-    if (audioMode === 'recording') setAssistantState('listening')
+    if (audioMode === 'recording') {
+      stopPlaybackRef.current()   // barge-in: VAD started recording → kill TTS
+      setAssistantState('listening')
+    }
     if (audioMode === 'processing') setAssistantState('thinking')
   }, [audioMode, isCapturing])
 
   // ── WebSocket events ──────────────────────────────────────────────────────
   useEffect(() => {
     const onStateChanged = (data: StateChangedData) => {
-      if (data?.new_mode) setAssistantState(data.new_mode)
+      if (!data?.new_mode) return
+      setAssistantState(data.new_mode === 'paused' ? 'sleeping' : data.new_mode)
+      setIsSleeping(data.new_mode === 'paused')
     }
 
     const onWakeWordEvt = (_data: unknown) => {
@@ -169,13 +182,32 @@ function App() {
       // Clear any pending streaming message
       streamingMessageIdRef.current = null
 
-      setMessages(prev => [...prev, {
-        id: crypto.randomUUID(),
-        content: data.message,
-        role: 'assistant',
-        timestamp: data.timestamp ? new Date(data.timestamp) : new Date(),
-        streaming: false,
-      }])
+      const ts = data.timestamp ? new Date(data.timestamp) : new Date()
+
+      setMessages(prev => {
+        const next = [...prev]
+        // If this response came from voice (has transcription), show what the user said first
+        if (data.transcription?.trim()) {
+          next.push({
+            id: crypto.randomUUID(),
+            content: data.transcription.trim(),
+            role: 'user',
+            timestamp: ts,
+          })
+          // Auto-open chat when voice transcript arrives so user can see the exchange
+          if (openPanelRef.current !== 'chat') {
+            openPanelByType('chat')
+          }
+        }
+        next.push({
+          id: crypto.randomUUID(),
+          content: data.message,
+          role: 'assistant',
+          timestamp: ts,
+          streaming: false,
+        })
+        return next
+      })
     }
 
     const onAIResponseChunk = (data: AIResponseChunkData) => {
@@ -224,9 +256,14 @@ function App() {
       }])
     }
 
+    const onStopTTS = (_data: unknown) => {
+      stopPlaybackRef.current()
+      setAssistantState('active')
+    }
+
     const onMemoriesUpdated = async (_data: unknown) => {
       try {
-        const res = await fetch(`${API_BASE}/api/memories`)
+        const res = await fetch(`${API_BASE}/api/memories`, withApiKeyHeader())
         if (res.ok) {
           const json = await res.json()
           setMemories(json.memories ?? [])
@@ -243,6 +280,7 @@ function App() {
     on('tool_screenshot' as WsEventType, onToolScreenshot)
     on('ui_command' as WsEventType, onUICommand)
     on('memories_updated' as WsEventType, onMemoriesUpdated)
+    on('stop_tts' as WsEventType, onStopTTS)
 
     const ping = setInterval(() => {
       if (isConnected) send('ping', {})
@@ -256,6 +294,7 @@ function App() {
       off('tool_screenshot' as WsEventType, onToolScreenshot)
       off('ui_command' as WsEventType, onUICommand)
       off('memories_updated' as WsEventType, onMemoriesUpdated)
+      off('stop_tts' as WsEventType, onStopTTS)
       clearInterval(ping)
     }
   }, [isConnected, on, off, send, closePanel, openPanelByType])
@@ -270,21 +309,29 @@ function App() {
   }, [openPanelByType, closePanel])
 
   // ── Send chat message ─────────────────────────────────────────────────────
-  const handleSendMessage = useCallback((text: string) => {
+  const handleSendMessage = useCallback((text: string, imageData?: string) => {
+    // Intercept stop commands typed in chat — cut TTS immediately, no round trip
+    const lower = text.trim().toLowerCase()
+    const stopKeywords = ['stop', 'stop talking', 'stop it', 'shut up', 'be quiet', 'para', 'cállate', 'callate']
+    if (stopKeywords.includes(lower)) {
+      stopPlaybackRef.current()
+      setAssistantState('active')
+      return
+    }
     setMessages(prev => [...prev, {
       id: crypto.randomUUID(),
       content: text,
       role: 'user',
       timestamp: new Date(),
     }])
-    send('chat_message', { message: text })
+    send('chat_message', { message: text, image_data: imageData ?? null })
     setAssistantState('thinking')
   }, [send])
 
   // ── Memory handlers ───────────────────────────────────────────────────────
   const handleForgetAll = useCallback(async () => {
     try {
-      await fetch(`${API_BASE}/api/memories`, { method: 'DELETE' })
+      await fetch(`${API_BASE}/api/memories`, withApiKeyHeader({ method: 'DELETE' }))
       setMemories([])
       showToast('success', 'All memories cleared')
     } catch {
@@ -294,18 +341,43 @@ function App() {
 
   const handleDeleteMemory = useCallback(async (id: number) => {
     try {
-      await fetch(`${API_BASE}/api/memories/${id}`, { method: 'DELETE' })
+      await fetch(`${API_BASE}/api/memories/${id}`, withApiKeyHeader({ method: 'DELETE' }))
       setMemories(prev => prev.filter(m => m.id !== id))
     } catch {
       showToast('error', 'Failed to delete memory')
     }
   }, [showToast])
 
+  // ── Sleep toggle ──────────────────────────────────────────────────────────
+  const handleSleepToggle = useCallback(() => {
+    if (isSleeping) {
+      send('resume', {})
+      setIsSleeping(false)
+      setAssistantState('active')
+    } else {
+      stopPlaybackRef.current()   // stop talking immediately when sleep pressed
+      send('pause', {})
+      setIsSleeping(true)
+      setAssistantState('sleeping')
+    }
+  }, [isSleeping, send])
+
   // ── Settings save handler ─────────────────────────────────────────────────
   const handleSettingsSave = useCallback(() => {
     showToast('success', 'Settings saved')
     closePanel()
   }, [showToast, closePanel])
+
+  // ── State label map ───────────────────────────────────────────────────────
+  const STATE_LABELS: Record<string, string> = {
+    active:    'Ready',
+    listening: 'Listening…',
+    thinking:  'Thinking…',
+    speaking:  'Speaking…',
+    sleeping:  'Sleeping…',
+    paused:    'Sleeping…',
+    inactive:  'Offline',
+  }
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -334,6 +406,13 @@ function App() {
           >
             <Settings size={20} />
           </button>
+          <button
+            className={`sidebar-btn ${isSleeping ? 'active' : ''}`}
+            onClick={handleSleepToggle}
+            title={isSleeping ? 'Wake Atlas' : 'Sleep mode'}
+          >
+            <Moon size={20} />
+          </button>
         </nav>
 
         <div className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`}
@@ -343,15 +422,17 @@ function App() {
 
       {/* Main area */}
       <main className="main-area">
-        {/* Centered orb zone */}
+        {/* Orb — fills the entire main area */}
         <div className="orb-container">
-          <NeuralOrb
-            state={assistantState as any}
-            onClick={handleOrbClick}
-            audioLevel={audioLevel}
-          />
-          <div className="state-badge" data-state={assistantState}>
-            {assistantState}
+          <div className="orb-wrap">
+            <NeuralOrb
+              state={assistantState as any}
+              onClick={handleOrbClick}
+              audioLevel={audioLevel}
+            />
+            <div className="state-badge" data-state={assistantState}>
+              {STATE_LABELS[assistantState] ?? assistantState}
+            </div>
           </div>
         </div>
 

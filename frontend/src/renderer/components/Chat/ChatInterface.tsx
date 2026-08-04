@@ -23,7 +23,7 @@ export interface Message {
 
 export interface ChatInterfaceProps {
   messages?:      Message[]
-  onSendMessage?: (message: string) => void
+  onSendMessage?: (message: string, imageData?: string) => void
   onClose?:       () => void
   audioMode?:     AudioCaptureMode
 }
@@ -32,18 +32,36 @@ export interface ChatInterfaceProps {
 
 function formatMessage(content: string): React.ReactNode {
   const parts = content.split(/(```[\s\S]*?```)/g)
-  return parts.map((part, i) => {
-    if (part.startsWith('```') && part.endsWith('```')) {
-      const inner = part.slice(3, -3)
-      const newlineIdx = inner.indexOf('\n')
-      const lang = newlineIdx > 0 && newlineIdx < 20 && /^[a-zA-Z]+$/.test(inner.slice(0, newlineIdx).trim())
-        ? inner.slice(0, newlineIdx).trim()
-        : ''
-      const code = lang ? inner.slice(newlineIdx + 1) : inner
-      return <CodeBlock key={i} code={code} lang={lang} />
-    }
-    return <span key={i}>{formatInline(part)}</span>
-  })
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith('```') && part.endsWith('```')) {
+          const inner = part.slice(3, -3)
+          const nl = inner.indexOf('\n')
+          const lang = nl > 0 && nl < 20 && /^[a-zA-Z]+$/.test(inner.slice(0, nl).trim())
+            ? inner.slice(0, nl).trim() : ''
+          return <CodeBlock key={i} code={lang ? inner.slice(nl + 1) : inner} lang={lang} />
+        }
+        return (
+          <span key={i}>
+            {part.split('\n').map((line, j) => {
+              if (/^#{1,3}\s/.test(line)) {
+                return <strong key={j} className="msg-heading">{line.replace(/^#+\s+/, '')}</strong>
+              }
+              if (/^\s*[-*+]\s/.test(line)) {
+                return <span key={j} className="msg-bullet">{'• '}{formatInline(line.replace(/^\s*[-*+]\s+/, ''))}</span>
+              }
+              if (/^\s*\d+\.\s/.test(line)) {
+                return <span key={j} className="msg-bullet">{formatInline(line)}</span>
+              }
+              if (line.trim() === '') return <br key={j} />
+              return <span key={j}>{formatInline(line)}<br /></span>
+            })}
+          </span>
+        )
+      })}
+    </>
+  )
 }
 
 function formatInline(text: string): React.ReactNode[] {
@@ -122,6 +140,11 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setCopiedId(id)
     setTimeout(() => setCopiedId(null), 1500)
   }, [])
+
+  const handleSubmit = useCallback((text: string) => {
+    if (!onSendMessage) return
+    onSendMessage(text)
+  }, [onSendMessage])
 
   const isRecording  = audioMode === 'recording'
   const isProcessing = audioMode === 'processing'
@@ -232,7 +255,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div className="chat-input-row">
           <PromptInput
             placeholder={isRecording ? 'Listening…' : isProcessing ? 'Processing…' : 'Ask Atlas anything…'}
-            onSubmit={onSendMessage}
+            onSubmit={handleSubmit}
             disabled={isRecording || isProcessing}
             glowIntensity={0.45}
           />

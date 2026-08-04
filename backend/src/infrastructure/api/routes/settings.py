@@ -9,12 +9,14 @@ import logging
 import os
 from typing import Dict, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
 
+from src.infrastructure.api.auth import require_api_key
 from src.infrastructure.config.settings import get_settings
+from src.infrastructure.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_api_key)])
 
 
 def mask_api_key(key: Optional[str]) -> Optional[str]:
@@ -46,7 +48,8 @@ async def get_settings_endpoint() -> Dict:
 
 
 @router.post("/settings")
-async def update_settings_endpoint(data: Dict) -> Dict:
+@limiter.limit("10/minute")
+async def update_settings_endpoint(request: Request, data: Dict) -> Dict:
     """
     Update settings from request body and write to .env file.
 

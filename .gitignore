@@ -74,6 +74,7 @@ frontend/release/
 
 # Testing
 .pytest_cache/
+pytest-cache-files-*/
 .coverage
 htmlcov/
 .tox/
@@ -103,3 +104,4 @@ backend/.mypy_cache/
 
 # Claude Code local tooling (memory, skills, plans — not project code)
 .claude/
+mis-secretos

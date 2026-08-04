@@ -127,7 +127,15 @@ export function useTTSPlayer(
 
       await new Promise<void>((resolve, reject) => {
         audio.onended = () => resolve()
-        audio.onerror = (e) => reject(new Error(`Audio playback error: ${e}`))
+        // onpause fires when stopPlayback() calls .pause() — resolve so finally runs
+        audio.onpause = () => {
+          if (!audio.ended) resolve()
+        }
+        audio.onerror = (e) => {
+          // Ignore errors caused by stopPlayback clearing src mid-play
+          if (!audioRef.current) { resolve(); return }
+          reject(new Error(`Audio playback error: ${e}`))
+        }
         audio.play().catch(reject)
       })
 
@@ -184,11 +192,16 @@ export function useTTSPlayer(
     queueRef.current = []
     setQueueSize(0)
 
-    // Parar audio actual
+    // Parar audio HTML (ElevenLabs path)
     if (audioRef.current) {
       audioRef.current.pause()
       audioRef.current.src = ''
       audioRef.current = null
+    }
+
+    // Parar speechSynthesis fallback (browser TTS path)
+    if (window.speechSynthesis?.speaking) {
+      window.speechSynthesis.cancel()
     }
 
     cleanupBlobUrl()

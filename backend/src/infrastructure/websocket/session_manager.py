@@ -79,7 +79,7 @@ class SessionManager:
         self.active_connections[session_id] = websocket
         self.assistant_states[session_id] = AssistantState(
             session_id=session_id,
-            mode=AssistantMode.INACTIVE,
+            mode=AssistantMode.ACTIVE,
             language="en",
         )
         self.running_loops[session_id] = True

@@ -52,6 +52,22 @@ class EventType(str, Enum):
     # Eventos proactivos
     PROACTIVE_HELP_TRIGGERED = "proactive_help_triggered"
 
+    # Eventos del Supervisor (Agentic OS) — lifecycle de subtareas.
+    # Estos nombres se usan tal cual como "type" en los mensajes WebSocket
+    # hacia el frontend (snake_case, el dispatcher del frontend usa el string exacto).
+    TASK_QUEUED = "task_queued"
+    TASK_STARTED = "task_started"
+    TASK_PROGRESS = "task_progress"
+    TASK_COMPLETED = "task_completed"
+    TASK_FAILED = "task_failed"
+    TASK_TIMEOUT = "task_timeout"
+    TASK_CONFLICT = "task_conflict"
+    TASK_NEEDS_CONFIRMATION = "task_needs_confirmation"
+
+    # Eventos internos del Supervisor (solo bus, no van al frontend)
+    SUPERVISOR_REQUEST_RECEIVED = "supervisor_request_received"
+    TASK_CONFIRMATION_RECEIVED = "task_confirmation_received"
+
 
 # Constantes de eventos como strings para uso directo
 WAKE_WORD_DETECTED = EventType.WAKE_WORD_DETECTED.value

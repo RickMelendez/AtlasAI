@@ -6,6 +6,7 @@ event handlers, and application lifecycle using AppContainer for
 proper dependency injection.
 """
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -13,10 +14,14 @@ from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from src.infrastructure.api.routes import websocket, settings as settings_routes
 from src.infrastructure.config.settings import get_settings
 from src.infrastructure.container import AppContainer
+from src.infrastructure.rate_limit import limiter
 
 # Configure logging
 logging.basicConfig(
@@ -66,6 +71,86 @@ async def lifespan(app: FastAPI):
     from src.infrastructure.database.repositories.conversation_repository import (
         SQLiteConversationRepository,
     )
+    from src.infrastructure.database.repositories.memory_repository import MemoryRepository
+
+    # ── Wire the WebSocket manager to the container services ─────────────────
+    # Sin esto, el pipeline de voz (audio_command) muere en silencio: los
+    # setters existen pero nadie los llamaba (ver CODE-REVIEW.md, Critical).
+    ws_manager.set_tool_executor(container.tool_executor)
+    if container.whisper:
+        ws_manager.set_whisper_service(container.whisper)
+    if container.tts:
+        ws_manager.set_tts_service(container.tts)
+    ws_manager.set_voice_use_case_factory(
+        lambda state, include_tts=True: container.make_voice_use_case(
+            state, include_tts=include_tts
+        )
+    )
+    logger.info("✅ WebSocket manager wired to container services")
+
+    # ── Memory helpers ────────────────────────────────────────────────────────
+
+    async def _load_memories() -> list[str]:
+        """Load all stored memories as plain strings."""
+        try:
+            async with AsyncSessionFactory() as db_sess:
+                repo = MemoryRepository(db_sess)
+                mems = await repo.get_all_memories()
+                return [m.content for m in mems]
+        except Exception as e:
+            logger.error(f"Failed to load memories: {e}")
+            return []
+
+    async def _auto_extract_memory(user_msg: str, assistant_msg: str) -> None:
+        """
+        Ask Claude to extract any new facts worth remembering from this exchange.
+        Runs in the background after each conversation turn.
+        """
+        try:
+            extraction_prompt = (
+                "You are a memory extraction system. Given a conversation exchange, "
+                "identify facts about the user that are worth remembering long-term "
+                "(name, job, preferences, ongoing projects, personal details, tools they use, etc.).\n\n"
+                "Rules:\n"
+                "- Only extract facts that are NEW and specific to this user\n"
+                "- Skip generic information or things already obvious\n"
+                "- Respond with a JSON array of strings, each a single fact\n"
+                "- If there is nothing worth remembering, respond with: []\n"
+                "- Maximum 3 facts per exchange\n\n"
+                "Example output: [\"User's name is Ricky\", \"User works with Python and FastAPI\", \"User prefers concise responses\"]\n"
+                "Or if nothing new: []"
+            )
+            exchange = f"User: {user_msg}\n\nAssistant: {assistant_msg}"
+
+            response = await container.claude.client.messages.create(
+                model="claude-haiku-4-5-20251001",  # cheap + fast for extraction
+                max_tokens=256,
+                temperature=0.1,
+                system=extraction_prompt,
+                messages=[{"role": "user", "content": exchange}],
+            )
+
+            import json as _json
+            text = response.content[0].text.strip() if response.content else "[]"
+            # Strip markdown code fences if present
+            if text.startswith("```"):
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            facts: list = _json.loads(text)
+
+            if not isinstance(facts, list) or not facts:
+                return
+
+            async with AsyncSessionFactory() as db_sess:
+                async with db_sess.begin():
+                    mem_repo = MemoryRepository(db_sess)
+                    for fact in facts[:3]:
+                        if isinstance(fact, str) and fact.strip():
+                            await mem_repo.add_memory(fact.strip(), source="auto")
+            logger.info(f"[memory] Auto-extracted {len(facts)} fact(s)")
+        except Exception as e:
+            logger.warning(f"[memory] Auto-extraction failed (non-critical): {e}")
 
     # Handler for text chat messages
     async def handle_user_message(data: dict):
@@ -74,6 +159,7 @@ async def lifespan(app: FastAPI):
         session_id = data.get("session_id")
         message = data.get("message")
         screen_context = data.get("screen_context")
+        image_data = data.get("image_data")
 
         if not session_id or not message:
             logger.warning("Invalid user message data received")
@@ -83,6 +169,33 @@ async def lifespan(app: FastAPI):
         if not state:
             logger.warning(f"No state found for session {session_id}")
             return
+
+        # ── "Remember that..." explicit memory command ───────────────────────
+        msg_lower = message.strip().lower()
+        _remember_prefixes = ("remember that ", "remember: ", "remember this: ", "nota: ", "anota que ")
+        for _prefix in _remember_prefixes:
+            if msg_lower.startswith(_prefix):
+                fact = message.strip()[len(_prefix):].strip()
+                if fact:
+                    try:
+                        async with AsyncSessionFactory() as db_session:
+                            async with db_session.begin():
+                                mem_repo = MemoryRepository(db_session)
+                                await mem_repo.add_memory(fact, source="user")
+                        logger.info(f"[{session_id}] User saved memory: '{fact[:60]}'")
+                        await ws_manager.send_event(
+                            session_id,
+                            {
+                                "type": EventType.AI_RESPONSE_GENERATED.value,
+                                "data": {
+                                    "message": f"Got it, I'll remember that: {fact}",
+                                    "timestamp": _time_mod.strftime("%Y-%m-%dT%H:%M:%SZ", _time_mod.gmtime()),
+                                },
+                            },
+                        )
+                    except Exception as mem_err:
+                        logger.error(f"[{session_id}] Error saving memory: {mem_err}")
+                return
 
         # ── "Forget everything" command ─────────────────────────────────────
         if message.strip().lower() in ("forget everything", "forget it all", "clear memory"):
@@ -109,6 +222,9 @@ async def lifespan(app: FastAPI):
                 logger.error(f"[{session_id}] Error clearing memories: {forget_err}")
             return
 
+        # Load long-term memories for this session
+        memories = await _load_memories()
+
         # Load conversation history from database (single session)
         conversation_history = None
         try:
@@ -120,7 +236,7 @@ async def lifespan(app: FastAPI):
                     )
                     if conversation:
                         db_messages = await repo.get_last_n_messages(
-                            conversation.id, n=10
+                            conversation.id, n=20
                         )
                         conversation_history = [
                             msg.to_claude_format() for msg in db_messages
@@ -140,6 +256,8 @@ async def lifespan(app: FastAPI):
                 conversation_history=conversation_history,
                 screen_context=screen_context,
                 language=state.language if hasattr(state, "language") else "en",
+                image_data=image_data,
+                memories=memories,
             ):
                 full_response += chunk
                 await ws_manager.send_event(
@@ -165,6 +283,7 @@ async def lifespan(app: FastAPI):
                     message, state,
                     screen_context=screen_context,
                     conversation_history=conversation_history,
+                    memories=memories,
                 )
                 full_response = result.get("response", "")
                 await ws_manager.send_event(
@@ -212,9 +331,34 @@ async def lifespan(app: FastAPI):
                     f"[{session_id}] DB persistence error: {db_err}", exc_info=True
                 )
 
+            # Auto-extract memories in the background (non-blocking)
+            import asyncio as _asyncio
+            _asyncio.ensure_future(_auto_extract_memory(message, full_response))
+
     # Register handler
     event_bus.on(EventType.USER_MESSAGE_RECEIVED.value, handle_user_message)
     logger.info("✅ Chat message handler registered")
+
+    # Handler: create conversation row immediately on WebSocket connect
+    # so history is available from the very first message
+    async def handle_websocket_connected(data: dict):
+        session_id = data.get("session_id")
+        if not session_id:
+            return
+        try:
+            async with AsyncSessionFactory() as db_sess:
+                async with db_sess.begin():
+                    repo = SQLiteConversationRepository(db_sess)
+                    existing = await repo.get_active_conversation_by_session(session_id)
+                    if not existing:
+                        conv = Conversation(session_id=session_id, language="en")
+                        await repo.create_conversation(conv)
+                        logger.info(f"[{session_id}] Conversation created on connect")
+        except Exception as e:
+            logger.error(f"[{session_id}] Error creating conversation on connect: {e}")
+
+    event_bus.on(EventType.WEBSOCKET_CONNECTED.value, handle_websocket_connected)
+    logger.info("✅ WebSocket connect handler registered")
 
     # Handler for screen context (proactive help detection)
     import base64
@@ -231,6 +375,11 @@ async def lifespan(app: FastAPI):
         screenshot_b64 = data.get("screenshot_data", "")
 
         if not session_id or not screenshot_b64:
+            return
+
+        # Skip re-analysis if the event was already processed by screen_monitor_loop
+        # (which sets source="server_loop" and has already called Claude Vision).
+        if data.get("source") == "server_loop":
             return
 
         now = _time.monotonic()
@@ -295,7 +444,9 @@ async def lifespan(app: FastAPI):
                 # Generate TTS audio if available
                 if container.tts:
                     try:
-                        audio_b64 = await container.tts.synthesize(help_text)
+                        audio_bytes = await container.tts.synthesize_speech(help_text)
+                        import base64 as _b64
+                        audio_b64 = _b64.b64encode(audio_bytes).decode("utf-8")
                         await ws_manager.send_event(
                             session_id,
                             {
@@ -316,168 +467,146 @@ async def lifespan(app: FastAPI):
     )
     logger.info("✅ Proactive help handler registered")
 
-    # Inject container into WebSocket manager
-    if container.whisper:
-        ws_manager.set_voice_use_case_factory(container.make_voice_use_case)
-        ws_manager.set_whisper_service(container.whisper)
-        logger.info("✅ Voice pipeline registered")
+    logger.info("🎮 Atlas AI Backend fully initialized — ready to accept connections")
+
+    # ── Start local desktop loops (optional, disabled in cloud deployments) ────
+    # Controlled by SCREEN_MONITOR_ENABLED and WAKE_WORD_LOCAL_ENABLED in .env
+    _loop_stop_event = asyncio.Event()
+    _loop_tasks = []
+
+    from src.infrastructure.loops import run_screen_monitor_loop, run_wake_word_loop
+
+    if get_settings().screen_monitor_enabled:
+        logger.info("🖥️  Starting server-side screen monitor loop…")
+        _loop_tasks.append(
+            asyncio.create_task(
+                run_screen_monitor_loop(
+                    stop_event=_loop_stop_event,
+                    screen_service=container.screen_service,
+                    ws_manager=ws_manager,
+                    interval_secs=float(get_settings().screen_capture_interval),
+                ),
+                name="screen_monitor_loop",
+            )
+        )
     else:
-        logger.warning("⚠️  Voice pipeline not registered (FasterWhisper unavailable)")
+        logger.info(
+            "ℹ️  Server-side screen monitor disabled "
+            "(SCREEN_MONITOR_ENABLED=false). Frontend sends screen frames via WebSocket."
+        )
 
-    ws_manager.set_tool_executor(container.tool_executor)
-    logger.info("✅ Tool executor registered")
+    if get_settings().wake_word_local_enabled:
+        logger.info("🎙️  Starting server-side wake word loop…")
 
-    yield
+        async def _on_wake_word_detected() -> None:
+            """Notify all active sessions when wake word is detected from mic."""
+            active = list(ws_manager.active_connections.keys())
+            for _sid in active:
+                state = ws_manager.get_state(_sid)
+                if state and state.mode.value not in ("listening",):
+                    state.start_listening()
+                await ws_manager.send_event(
+                    _sid,
+                    {
+                        "type": EventType.WAKE_WORD_DETECTED.value,
+                        "data": {
+                            "wake_word": "hey atlas",
+                            "source": "server_microphone",
+                        },
+                    },
+                )
+
+        # Build wake word adapter (loads ONNX models — runs in executor on first call)
+        try:
+            from src.adapters.voice.open_wake_word_adapter import OpenWakeWordAdapter
+            _oww = await asyncio.get_running_loop().run_in_executor(
+                None, OpenWakeWordAdapter
+            )
+            _loop_tasks.append(
+                asyncio.create_task(
+                    run_wake_word_loop(
+                        stop_event=_loop_stop_event,
+                        wake_word_adapter=_oww,
+                        on_detected=_on_wake_word_detected,
+                    ),
+                    name="wake_word_loop",
+                )
+            )
+        except Exception as _oww_err:
+            logger.warning(f"\u26a0\ufe0f  Could not start wake word loop: {_oww_err}")
+    else:
+        logger.info(
+            "\u2139\ufe0f  Server-side wake word loop disabled "
+            "(WAKE_WORD_LOCAL_ENABLED=false). Frontend sends audio_chunk via WebSocket."
+        )
+
+    yield  # app is live, waiting for shutdown signal
 
     # Shutdown
-    logger.info("🛑 Atlas AI Backend shutting down...")
-    await container.shutdown()
+    logger.info("\U0001f6d1 Atlas AI Backend shutting down...")
+
+    # Stop background loops gracefully
+    if _loop_tasks:
+        logger.info(f"\U0001f6d1 Stopping {len(_loop_tasks)} background loop(s)\u2026")
+        _loop_stop_event.set()
+        await asyncio.gather(*_loop_tasks, return_exceptions=True)
+        logger.info("\u2705 Background loops stopped")
+
+    if container:
+        await container.shutdown()
+    logger.info("\u2705 Atlas AI Backend stopped cleanly")
 
 
-# Create FastAPI app
+# FastAPI App
+
 app = FastAPI(
-    title="Atlas AI Visual Companion API",
-    description=(
-        "Backend API for Atlas AI - An AI visual assistant that acts as "
-        "a tech-savvy companion."
-    ),
+    title="Atlas AI Backend",
+    description="Backend API for Atlas AI Visual Companion",
     version="0.1.0",
     lifespan=lifespan,
 )
 
-# Configure CORS - allow localhost + any production origins set via env
-_base_origins = [
-    "http://localhost:8000",
+# Rate limiting — per-IP, applied per-route via @limiter.limit(...) in routes
+# that trigger paid API calls (game/chat, settings writes). See rate_limit.py.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# CORS
+_cors_origins_raw = os.environ.get("CORS_ORIGINS", "")
+CORS_ORIGINS = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()] or [
     "http://localhost:5173",
     "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:3000",
+    "https://atlas-ai.vercel.app",
 ]
-_extra = os.environ.get("CORS_ORIGINS", "")
-_allowed_origins = _base_origins + [o.strip() for o in _extra.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_allowed_origins,
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "X-Atlas-Key"],
 )
 
+# Routers
+from src.infrastructure.api.routes import game as game_routes  # noqa: E402
 
-# Health check endpoint
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "service": "Atlas AI Backend",
-        "version": "0.1.0",
-        "architecture": "event-driven",
-        "features": {
-            "websocket": "enabled",
-            "event_bus": "enabled",
-            "continuous_loops": "enabled",
-        },
-    }
+app.include_router(websocket.router, prefix="/api")
+app.include_router(settings_routes.router, prefix="/api")
+app.include_router(game_routes.router, prefix="/api")
 
 
 @app.get("/")
 async def root():
-    """Root endpoint with API information."""
+    """Root endpoint."""
     return {
-        "message": "Atlas AI Backend API",
-        "description": "Event-driven system with continuous WebSocket",
+        "status": "Atlas AI Backend running",
+        "mode": get_settings().atlas_mode,
         "version": "0.1.0",
-        "endpoints": {
-            "health": "/health",
-            "websocket": "/api/ws",
-            "settings": "/api/settings",
-            "memories": "/api/memories",
-            "docs": "/docs",
-        },
     }
 
 
-# Memory endpoints
-@app.get("/api/memories")
-async def get_memories():
-    """Get all stored memories."""
-    try:
-        from src.infrastructure.database import AsyncSessionFactory
-        from src.infrastructure.database.repositories.memory_repository import (
-            MemoryRepository,
-        )
-
-        async with AsyncSessionFactory() as session:
-            repo = MemoryRepository(session)
-            memories = await repo.get_all_memories()
-            return {
-                "memories": [
-                    {"id": m.id, "content": m.content, "source": m.source}
-                    for m in memories
-                ]
-            }
-    except Exception as e:
-        logger.error(f"Failed to get memories: {e}")
-        return {"memories": []}
-
-
-@app.delete("/api/memories/{memory_id}")
-async def delete_memory(memory_id: int):
-    """Delete a single memory by ID."""
-    try:
-        from src.infrastructure.database import AsyncSessionFactory
-        from src.infrastructure.database.repositories.memory_repository import (
-            MemoryRepository,
-        )
-
-        async with AsyncSessionFactory() as session:
-            async with session.begin():
-                repo = MemoryRepository(session)
-                deleted = await repo.delete_memory(memory_id)
-        if deleted:
-            return {"deleted": True, "id": memory_id}
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Memory not found")
-    except Exception as e:
-        logger.error(f"Failed to delete memory {memory_id}: {e}")
-        raise
-
-
-@app.delete("/api/memories")
-async def delete_all_memories():
-    """Delete all memories."""
-    try:
-        from src.infrastructure.database import AsyncSessionFactory
-        from src.infrastructure.database.repositories.memory_repository import (
-            MemoryRepository,
-        )
-
-        async with AsyncSessionFactory() as session:
-            async with session.begin():
-                repo = MemoryRepository(session)
-                count = await repo.delete_all_memories()
-                logger.info(f"Deleted {count} memories")
-        return {"deleted": count}
-    except Exception as e:
-        logger.error(f"Failed to delete memories: {e}")
-        raise
-
-
-# Register routers
-app.include_router(websocket.router, prefix="/api", tags=["websocket"])
-app.include_router(settings_routes.router, prefix="/api", tags=["settings"])
-
-
-# Entry point for uvicorn
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(
-        "src.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info",
-    )
+@app.get("/health")
+async def health():
+    """Health check for load balancers."""
+    return {"status": "ok", "mode": get_settings().atlas_mode}

@@ -119,58 +119,79 @@
 .msg {
   display: flex;
   flex-direction: column;
-  animation: msgIn 0.2s ease-out;
-  padding: 10px 0;
+  animation: msgIn 0.18s ease-out;
 }
 
 @keyframes msgIn {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Assistant messages — full width, left accent bar */
+/* Assistant messages — bubble, left-aligned */
 .msg--assistant {
-  padding-left: 12px;
-  border-left: 2px solid var(--accent);
-  margin-bottom: 8px;
+  align-self: flex-start;
+  max-width: 92%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 14px 14px 14px 4px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
 }
 
 .msg-label {
   font-size: 10px;
-  letter-spacing: 0.1em;
-  color: var(--text-secondary);
+  letter-spacing: 0.08em;
+  color: var(--accent);
   text-transform: uppercase;
   font-weight: 600;
-  margin-bottom: 4px;
+  margin-bottom: 5px;
 }
 
 .msg-text {
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 13.5px;
+  line-height: 1.65;
   color: var(--text-primary);
-  white-space: pre-wrap;
   word-break: break-word;
 }
 
-/* User messages — right-aligned, italicized */
+/* Inline markdown elements */
+.msg-heading {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 6px 0 2px;
+}
+
+.msg-bullet {
+  display: block;
+  padding-left: 6px;
+  color: var(--text-primary);
+}
+
+/* User messages — bubble, right-aligned */
 .msg--user {
-  align-items: flex-end;
-  margin-bottom: 8px;
+  align-self: flex-end;
+  max-width: 82%;
+  margin-bottom: 10px;
 }
 
 .msg--user .msg-text {
-  font-size: 13px;
-  font-style: italic;
-  color: var(--text-secondary);
-  text-align: right;
-  max-width: 85%;
+  font-size: 13.5px;
+  background: var(--accent-dim);
+  border: 1px solid rgba(88, 166, 255, 0.22);
+  border-radius: 14px 14px 4px 14px;
+  padding: 8px 13px;
+  color: var(--text-primary);
+  font-style: normal;
+  word-break: break-word;
 }
 
 /* Timestamp */
 .msg-time {
   font-size: 10px;
   color: var(--text-muted);
-  margin-top: 6px;
+  margin-top: 5px;
 }
 
 .msg--user .msg-time {
@@ -374,3 +395,4 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+

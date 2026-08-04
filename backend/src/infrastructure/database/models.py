@@ -171,6 +171,117 @@ class MemoryModel(Base):
         return f"<Memory id={self.id} source={self.source}>"
 
 
+class TaskModel(Base):
+    """
+    Tabla ORM para subtareas del Supervisor (Agentic OS).
+
+    Cada fila es una subtarea despachada por el runtime. El estado en esta
+    tabla es la verdad absoluta — los eventos WebSocket son solo notificaciones.
+    """
+
+    __tablename__ = "supervisor_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    subtask_id: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )  # id asignado por el planner ("t1"), estable entre reintentos
+    session_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    idempotency_key: Mapped[str] = mapped_column(
+        String(64), nullable=False, index=True
+    )  # sha256 hex — calculado por el runtime, NO por el modelo
+    agent_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    task: Mapped[str] = mapped_column(Text, nullable=False)
+    project_tag: Mapped[str] = mapped_column(String(50), default="personal")
+    depends_on_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    timeout_ms: Mapped[int] = mapped_column(Integer, default=60_000)
+    cost_tier: Mapped[str] = mapped_column(
+        String(12), default="cheap"
+    )  # "free" | "cheap" | "expensive"
+    requires_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    # queued|running|needs_confirmation|completed|failed|timeout|skipped|denied
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    result_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    fail_reason: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    # worker_error|budget_exceeded|dependency_failed|kill_switch|denied_by_user
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    def get_depends_on(self) -> List[str]:
+        if self.depends_on_json:
+            return json.loads(self.depends_on_json)
+        return []
+
+    def set_depends_on(self, value: List[str]) -> None:
+        self.depends_on_json = json.dumps(value) if value else None
+
+    def get_result(self) -> dict:
+        if self.result_json:
+            return json.loads(self.result_json)
+        return {}
+
+    def set_result(self, value: Optional[dict]) -> None:
+        self.result_json = json.dumps(value) if value else None
+
+    def __repr__(self) -> str:
+        return f"<Task id={self.id} agent={self.agent_id} status={self.status}>"
+
+
+class TaskEventModel(Base):
+    """
+    Tabla ORM para eventos de lifecycle de subtareas.
+
+    Audit log con timestamps del servidor — el modelo no puede falsificarlos
+    porque nunca los toca (garantía del runtime, ver docs/agentic-os-supervisor.md).
+    """
+
+    __tablename__ = "supervisor_task_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    task_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("supervisor_tasks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    request_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    payload_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    def get_payload(self) -> dict:
+        if self.payload_json:
+            return json.loads(self.payload_json)
+        return {}
+
+    def set_payload(self, value: Optional[dict]) -> None:
+        self.payload_json = json.dumps(value) if value else None
+
+    def __repr__(self) -> str:
+        return f"<TaskEvent task={self.task_id} type={self.event_type}>"
+
+
+class SupervisorBudgetModel(Base):
+    """
+    Tabla ORM para el presupuesto diario del Supervisor.
+
+    Una fila por día UTC. kill_switch=True detiene todos los dispatches
+    (segunda capa además del flag en settings).
+    """
+
+    __tablename__ = "supervisor_budget"
+
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)  # "YYYY-MM-DD" UTC
+    expensive_calls: Mapped[int] = mapped_column(Integer, default=0)
+    kill_switch: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    def __repr__(self) -> str:
+        return f"<SupervisorBudget day={self.day} calls={self.expensive_calls}>"
+
+
 # ─── Índices adicionales ──────────────────────────────────────────────────────
 
 Index(
@@ -187,4 +298,14 @@ Index(
     "ix_screen_session_created",
     ScreenContextModel.session_id,
     ScreenContextModel.created_at,
+)
+Index(
+    "ix_supervisor_tasks_idem_created",
+    TaskModel.idempotency_key,
+    TaskModel.created_at,
+)
+Index(
+    "ix_supervisor_events_task_created",
+    TaskEventModel.task_id,
+    TaskEventModel.created_at,
 )

@@ -118,8 +118,8 @@ function latticePositions(n: number, r: number): THREE.Vector3[] {
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-const NODE_COUNT = 180
-const LINE_DIST_SQ = 0.38 * 0.38   // connect nodes within this distance²
+const NODE_COUNT = 280
+const LINE_DIST_SQ = 0.55 * 0.55   // connect nodes within this distance²
 
 export const NeuralOrb: React.FC<NeuralOrbProps> = ({ state, onClick, audioLevel = 0 }) => {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -150,8 +150,8 @@ export const NeuralOrb: React.FC<NeuralOrbProps> = ({ state, onClick, audioLevel
 
     // ── Scene / Camera ──────────────────────────────────────────────────────
     const scene  = new THREE.Scene()
-    const camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 100)
-    camera.position.z = 4.5
+    const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 100)
+    camera.position.z = 3.2
 
     const group = new THREE.Group()
     scene.add(group)
@@ -421,10 +421,6 @@ export const NeuralOrb: React.FC<NeuralOrbProps> = ({ state, onClick, audioLevel
 
       lineMat.color.copy(curLineColor)
       lineMat.opacity = curLineOpacity
-
-      // ── CSS glow ───────────────────────────────────────────────────────
-      const glowPx = 22 + curNodeSize * 20 + al * 14
-      container.style.filter = `drop-shadow(0 0 ${glowPx}px ${curGlowColor}) drop-shadow(0 0 ${glowPx * 0.5}px ${curGlowColor})`
 
       renderer.render(scene, camera)
     }

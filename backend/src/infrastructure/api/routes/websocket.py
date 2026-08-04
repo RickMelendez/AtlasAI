@@ -7,15 +7,38 @@ la conexión continua con el frontend.
 
 import asyncio
 import logging
+import time
 import uuid
+from collections import defaultdict, deque
+from typing import Deque, Dict
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
+from src.infrastructure.api.auth import require_api_key, verify_websocket_key
 from src.infrastructure.websocket.manager import ws_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# ── Per-IP connection-attempt rate limiting ─────────────────────────────────
+# slowapi only covers HTTP; the WS handshake needs its own limiter since each
+# connection can trigger the screen-monitor/vision loop (real $ cost per
+# connection, not per message — see CODE-REVIEW.md AI/LLM Critical).
+_WS_MAX_CONNECTS_PER_WINDOW = 20
+_WS_WINDOW_SECS = 60.0
+_ws_connect_times: Dict[str, Deque[float]] = defaultdict(deque)
+
+
+def _ws_rate_limited(client_ip: str) -> bool:
+    now = time.monotonic()
+    attempts = _ws_connect_times[client_ip]
+    while attempts and now - attempts[0] > _WS_WINDOW_SECS:
+        attempts.popleft()
+    if len(attempts) >= _WS_MAX_CONNECTS_PER_WINDOW:
+        return True
+    attempts.append(now)
+    return False
 
 
 @router.websocket("/ws")
@@ -37,6 +60,20 @@ async def websocket_endpoint(websocket: WebSocket):
     Args:
         websocket: Conexión WebSocket de FastAPI
     """
+    client_ip = websocket.client.host if websocket.client else "unknown"
+
+    if not verify_websocket_key(websocket):
+        logger.warning(f"WebSocket auth rejected for {client_ip}")
+        await websocket.accept()
+        await websocket.close(code=4401, reason="Invalid or missing API key")
+        return
+
+    if _ws_rate_limited(client_ip):
+        logger.warning(f"WebSocket connection rate-limited for {client_ip}")
+        await websocket.accept()
+        await websocket.close(code=4429, reason="Too many connection attempts")
+        return
+
     # Generar session_id único
     session_id = str(uuid.uuid4())
 
@@ -79,7 +116,7 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.info(f"WebSocket endpoint closed for session: {session_id}")
 
 
-@router.get("/ws/health")
+@router.get("/ws/health", dependencies=[Depends(require_api_key)])
 async def websocket_health():
     """
     Health check endpoint para el sistema WebSocket.

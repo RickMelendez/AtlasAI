@@ -13,7 +13,9 @@ class ElevenLabsAdapter(TTSService):
     """
 
     BASE_URL = "https://api.elevenlabs.io/v1/text-to-speech"
-    DEFAULT_VOICE_ID = "onwK4e9ZLuTAKqWW03F9"  # Daniel — British, calm, conversational
+    # Free-tier voice (Adam — clear American English male, works on all plans)
+    # The previous ID was a cloned library voice locked to paid plans (402).
+    DEFAULT_VOICE_ID = "pNInz6obpgDQGcFmaJgB"
 
     def __init__(self, api_key: str, voice_id: str = None):
         self.api_key = api_key
@@ -29,9 +31,9 @@ class ElevenLabsAdapter(TTSService):
                     "text": text,
                     "model_id": "eleven_turbo_v2_5",
                     "voice_settings": {
-                        "stability": 0.45,
-                        "similarity_boost": 0.80,
-                        "style": 0.25,
+                        "stability": 0.42,
+                        "similarity_boost": 0.82,
+                        "style": 0.35,
                         "use_speaker_boost": True,
                     },
                 },
@@ -49,4 +51,4 @@ class ElevenLabsAdapter(TTSService):
 
     async def get_available_voices(self) -> list:
         """Returns a static list — ElevenLabs voice listing requires separate API call."""
-        return [{"voice_id": self.DEFAULT_VOICE_ID, "name": "ElevenLabs Default (Adam)"}]
+        return [{"voice_id": self.DEFAULT_VOICE_ID, "name": "ElevenLabs Default (Josh)"}]

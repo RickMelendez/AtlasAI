@@ -11,20 +11,16 @@ from typing import Optional
 
 from src.adapters.ai.claude_adapter import ClaudeAdapter
 from src.adapters.vision.claude_vision_adapter import ClaudeVisionAdapter
-from src.adapters.voice.edge_tts_adapter import EdgeTTSAdapter
 from src.adapters.voice.elevenlabs_adapter import ElevenLabsAdapter
-from src.adapters.voice.faster_whisper_adapter import FasterWhisperAdapter
 from src.adapters.voice.fish_audio_adapter import FishAudioAdapter
+from src.adapters.voice.faster_whisper_adapter import FasterWhisperAdapter
 from src.adapters.web.playwright_adapter import PlaywrightAdapter
 from src.adapters.notion.notion_adapter import NotionAdapter
 from src.adapters.tools.tool_executor import ToolExecutor
 from src.application.use_cases.process_chat_message import ProcessChatMessageUseCase
 from src.application.use_cases.process_voice_command import ProcessVoiceCommandUseCase
 from src.infrastructure.config.settings import get_settings
-from src.infrastructure.database import init_db, AsyncSessionFactory
-from src.infrastructure.database.repositories.conversation_repository import (
-    SQLiteConversationRepository,
-)
+from src.infrastructure.database import init_db
 
 logger = logging.getLogger(__name__)
 
@@ -83,19 +79,8 @@ class AppContainer:
             logger.warning(f"⚠️  FasterWhisper not available: {e}")
             self.whisper = None
 
-        # Text-to-Speech: ElevenLabs → Fish Audio → Edge-TTS (free fallback)
-        if settings.elevenlabs_api_key:
-            try:
-                self.tts = ElevenLabsAdapter(
-                    api_key=settings.elevenlabs_api_key,
-                    voice_id=settings.elevenlabs_voice_id or None,
-                )
-                logger.info("[TTS] Using ElevenLabs")
-            except Exception as e:
-                logger.warning(f"⚠️  ElevenLabs not available: {e}")
-                self.tts = None
-
-        if self.tts is None and settings.fish_audio_api_key:
+        # Text-to-Speech: Fish Audio preferred, ElevenLabs as fallback
+        if settings.fish_audio_api_key:
             try:
                 self.tts = FishAudioAdapter(
                     api_key=settings.fish_audio_api_key,
@@ -105,14 +90,19 @@ class AppContainer:
             except Exception as e:
                 logger.warning(f"⚠️  Fish Audio not available: {e}")
                 self.tts = None
-
-        if self.tts is None:
+        elif settings.elevenlabs_api_key:
             try:
-                self.tts = EdgeTTSAdapter()
-                logger.info("[TTS] Using Edge-TTS (free fallback)")
+                self.tts = ElevenLabsAdapter(
+                    api_key=settings.elevenlabs_api_key,
+                    voice_id=settings.elevenlabs_voice_id or None,
+                )
+                logger.info("[TTS] Using ElevenLabs (fallback)")
             except Exception as e:
-                logger.warning(f"⚠️  Edge-TTS not available: {e}")
+                logger.warning(f"⚠️  ElevenLabs not available: {e}")
                 self.tts = None
+        else:
+            logger.warning("⚠️  No TTS configured — set FISH_AUDIO_API_KEY in .env")
+            self.tts = None
 
         # Screen vision service
         self.screen_service = ClaudeVisionAdapter()
@@ -155,12 +145,15 @@ class AppContainer:
 
         logger.info("✅ AppContainer: Shutdown complete")
 
-    def make_voice_use_case(self, assistant_state) -> ProcessVoiceCommandUseCase:
+    def make_voice_use_case(self, assistant_state, include_tts: bool = True) -> ProcessVoiceCommandUseCase:
         """
         Factory method to create a voice use case for a session.
 
         Args:
             assistant_state: The AssistantState for this session
+            include_tts: If False, TTS is skipped inside the use case.
+                         Set to False when the pipeline handles TTS externally
+                         (e.g. sentence-level streaming for lower latency).
 
         Returns:
             ProcessVoiceCommandUseCase configured with all services
@@ -174,6 +167,6 @@ class AppContainer:
             voice_service=self.whisper,
             ai_service=self.claude,
             assistant_state=assistant_state,
-            tts_service=self.tts,
+            tts_service=self.tts if include_tts else None,
             tool_executor=self.tool_executor,
         )

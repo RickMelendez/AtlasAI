@@ -27,6 +27,19 @@ CHAT_OPEN_TRIGGERS = {
     "show chat",
     "open chat mode",
 }
+STOP_TTS_TRIGGERS = {
+    "stop",
+    "stop talking",
+    "stop it",
+    "shut up",
+    "be quiet",
+    "quiet",
+    "silence",
+    "para",
+    "para de hablar",
+    "cállate",
+    "callate",
+}
 
 WAKE_PREFIXES = ("hey atlas,", "hey atlas", "hola atlas,", "hola atlas", "atlas,", "atlas")
 
@@ -179,6 +192,10 @@ def detect_language(text: str) -> str:
     """
     Detect language based on character and word heuristics.
 
+    Defaults to English. Only switches to Spanish when Spanish accent
+    characters (áéíóúüñ¿¡) are present — this prevents short, unclear,
+    or mixed-language transcripts from wrongly flipping to Spanish.
+
     Args:
         text: Text to analyze
 
@@ -187,8 +204,7 @@ def detect_language(text: str) -> str:
     """
     if any(c in ES_CHARS for c in text):
         return "es"
-    words = {w.strip("'.,!?") for w in text.lower().split()}
-    return "en" if words & EN_WORDS else "es"
+    return "en"
 
 
 def needs_screen_context(text: str) -> bool:
@@ -231,6 +247,29 @@ def clean_transcript(text: str) -> str:
     return cleaned.strip()
 
 
+# Noise words that Whisper adds around site names in voice commands.
+# "open the google browser" → strip these → "google" → KNOWN_SITES hit
+_OPEN_NOISE = {
+    "the", "browser", "website", "web", "app", "site", "page",
+    "up", "it", "that", "this", "now",
+}
+
+
+def _clean_site_target(target: str) -> str:
+    """
+    Strip noise words from a voice-dictated site target.
+
+    Examples:
+        "the google browser" → "google"
+        "google browser"     → "google"
+        "github website"     → "github"
+        "youtube"            → "youtube"  (unchanged)
+    """
+    words = target.lower().split()
+    filtered = [w for w in words if w not in _OPEN_NOISE]
+    return " ".join(filtered).strip()
+
+
 def fast_route(text: str) -> Optional[dict]:
     """
     Deterministic routing for high-confidence commands (0ms latency).
@@ -251,29 +290,31 @@ def fast_route(text: str) -> Optional[dict]:
 
     # "open {site}" → direct navigation
     if t.startswith("open "):
-        target = t[5:].strip()
-        if target in KNOWN_SITES:
-            return {"tool": "browse_web", "args": {"url": KNOWN_SITES[target]}}
-        # Heuristic fallback for unknown single-word sites
-        clean = target.replace(" ", "")
-        if clean.isalpha() and len(clean) < 20:
-            return {"tool": "browse_web", "args": {"url": f"https://{clean}.com"}}
+        raw_target = t[5:].strip()
+        # Try raw target first (exact match), then noise-stripped version
+        for target in (raw_target, _clean_site_target(raw_target)):
+            if target in KNOWN_SITES:
+                return {"tool": "open_in_default_browser", "args": {"url": KNOWN_SITES[target]}}
+        # Heuristic fallback only for clean single-word targets (not noise-combined junk)
+        clean = _clean_site_target(raw_target).replace(" ", "")
+        if clean.isalpha() and len(clean) < 20 and clean not in _OPEN_NOISE:
+            return {"tool": "open_in_default_browser", "args": {"url": f"https://{clean}.com"}}
         return None
 
     # "search X on Y" → direct search
     if t.startswith("search ") and " on " in t:
         parts = t[7:].split(" on ", 1)
         query = parts[0].strip()
-        site = parts[1].strip()
+        site = _clean_site_target(parts[1].strip())
         if site in KNOWN_SITES:
             base = KNOWN_SITES[site]
             url = f"{base}/search?q={query.replace(' ', '+')}"
-            return {"tool": "browse_web", "args": {"url": url}}
+            return {"tool": "open_in_default_browser", "args": {"url": url}}
 
     # "go to {site}" → direct navigation
     if t.startswith("go to "):
-        target = t[6:].strip()
+        target = _clean_site_target(t[6:].strip())
         if target in KNOWN_SITES:
-            return {"tool": "browse_web", "args": {"url": KNOWN_SITES[target]}}
+            return {"tool": "open_in_default_browser", "args": {"url": KNOWN_SITES[target]}}
 
     return None  # Everything else → Claude

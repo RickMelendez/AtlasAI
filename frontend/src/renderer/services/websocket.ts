@@ -11,6 +11,8 @@
  * - Manejo de errores robusto
  */
 
+import { appendApiKeyParam } from './apiKey';
+
 type EventHandler = (data: any) => void;
 
 interface WebSocketEvent {
@@ -62,8 +64,9 @@ class WebSocketService {
       // Resetear flag de cierre intencional para que auto-reconexión funcione
       // después de que el usuario llame disconnect() seguido de connect().
       this.isIntentionalClose = false;
+      const connectUrl = appendApiKeyParam(this.url);
       console.log('[WebSocket] Connecting to:', this.url);
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(connectUrl);
       this.setupEventHandlers();
 
       // Timeout: if still CONNECTING after 5s (TCP accepted but WS handshake

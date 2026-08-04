@@ -27,6 +27,7 @@ from src.infrastructure.database import AsyncSessionFactory
 from src.infrastructure.database.repositories.conversation_repository import (
     SQLiteConversationRepository,
 )
+from src.infrastructure.database.repositories.memory_repository import MemoryRepository
 from src.infrastructure.events.event_bus import event_bus
 from src.infrastructure.events.event_types import EventType
 from src.infrastructure.monitoring.sentry import (
@@ -35,6 +36,7 @@ from src.infrastructure.monitoring.sentry import (
 from src.infrastructure.websocket.command_router import (
     CHAT_OPEN_TRIGGERS,
     DISMISS_TRIGGERS,
+    STOP_TTS_TRIGGERS,
     clean_transcript,
     detect_language,
     fast_route,
@@ -43,6 +45,56 @@ from src.infrastructure.websocket.command_router import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── Sentence splitter ─────────────────────────────────────────────────────────
+
+import re as _re
+
+def _split_sentences(text: str) -> list[str]:
+    """
+    Split response into sentences for sentence-level TTS streaming.
+
+    Short sentences are merged with the next one to avoid very short audio clips
+    (which have more overhead per ElevenLabs call than they're worth).
+    """
+    # Split on sentence-ending punctuation followed by whitespace or end-of-string
+    raw = _re.split(r'(?<=[.!?])\s+', text.strip())
+    sentences: list[str] = []
+    buf = ""
+    for s in raw:
+        s = s.strip()
+        if not s:
+            continue
+        if buf:
+            buf += " " + s
+        else:
+            buf = s
+        # Flush buffer when we have a substantial sentence (≥ 30 chars)
+        if len(buf) >= 30:
+            sentences.append(buf)
+            buf = ""
+    if buf:
+        sentences.append(buf)
+    return sentences if sentences else [text.strip()]
+
+
+def strip_for_tts(text: str) -> str:
+    """Remove markdown and symbols TTS should never read aloud."""
+    # Remove code blocks entirely
+    text = _re.sub(r'```[\s\S]*?```', '', text)
+    text = _re.sub(r'`[^`]+`', '', text)
+    # Strip markdown formatting characters, keep the inner text
+    text = _re.sub(r'\*{1,3}([^*\n]+)\*{1,3}', r'\1', text)
+    text = _re.sub(r'_{1,2}([^_\n]+)_{1,2}', r'\1', text)
+    text = _re.sub(r'^#{1,6}\s+', '', text, flags=_re.MULTILINE)
+    text = _re.sub(r'^\s*[-*+]\s+', '', text, flags=_re.MULTILINE)
+    text = _re.sub(r'^\s*\d+\.\s+', '', text, flags=_re.MULTILINE)
+    text = _re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    text = _re.sub(r'[>#|~]', '', text)
+    # Collapse whitespace
+    text = _re.sub(r'\n+', ' ', text)
+    text = _re.sub(r'\s{2,}', ' ', text)
+    return text.strip()
 
 
 async def run_voice_pipeline(
@@ -54,6 +106,7 @@ async def run_voice_pipeline(
     voice_use_case_factory,
     tool_executor,
     ws_manager,
+    tts_service=None,
 ) -> None:
     """
     Execute Whisper → Claude → TTS in background.
@@ -103,6 +156,18 @@ async def run_voice_pipeline(
         logger.info(f"[{session_id}] Cleaned transcript: '{transcription}'")
 
         # Step 3: UI command interception (before Claude)
+
+        # Stop TTS — no audio response, just tell frontend to cut playback
+        if any(t in normalized for t in STOP_TTS_TRIGGERS):
+            logger.info(f"[{session_id}] Stop command detected — cutting TTS")
+            await ws_manager.send_event(
+                session_id,
+                {"type": "stop_tts", "data": {}},
+            )
+            if state:
+                state.reset_to_active()
+            return
+
         if any(t in normalized for t in DISMISS_TRIGGERS):
             logger.info(f"[{session_id}] UI command: dismiss")
             await ws_manager.send_event(
@@ -153,13 +218,20 @@ async def run_voice_pipeline(
                     },
                 },
             )
-            # TTS for brief confirmation
+            # TTS for brief confirmation — use ElevenLabs to keep voice consistent
+            tts_audio_b64 = None
+            if tts_service:
+                try:
+                    audio_bytes_tts = await tts_service.synthesize_speech(response_text)
+                    tts_audio_b64 = base64.b64encode(audio_bytes_tts).decode("utf-8")
+                except Exception as tts_err:
+                    logger.warning(f"[{session_id}] Fast route TTS error: {tts_err}")
             await ws_manager.send_event(
                 session_id,
                 {
                     "type": "tts_audio",
                     "data": {
-                        "audio_b64": None,
+                        "audio_b64": tts_audio_b64,
                         "format": "mp3",
                         "text": response_text,
                     },
@@ -169,15 +241,29 @@ async def run_voice_pipeline(
 
         else:
             # Step 5: Claude path (full voice pipeline)
-            voice_use_case = voice_use_case_factory(state)
+            # Load long-term memories to inject into Claude's system prompt
+            memories: list[str] = []
+            try:
+                async with AsyncSessionFactory() as _mem_sess:
+                    _mem_repo = MemoryRepository(_mem_sess)
+                    memories = [m.content for m in await _mem_repo.get_all_memories()]
+            except Exception as _mem_err:
+                logger.warning(f"[{session_id}] Could not load memories: {_mem_err}")
+
+            # Skip TTS inside the use case — we handle it sentence-by-sentence below
+            # to reduce perceived latency (first sentence plays ~1s sooner).
+            voice_use_case = voice_use_case_factory(state, include_tts=False)
             result = await voice_use_case.execute(
                 audio_data=audio_bytes,
                 conversation_history=None,
                 screen_context=screen_context,
                 transcription=transcription,
+                memories=memories,
             )
 
             if result["success"]:
+                # ── Send text to frontend immediately ──────────────────────────
+                # Text appears in chat right away; audio follows sentence by sentence.
                 await ws_manager.send_event(
                     session_id,
                     {
@@ -190,21 +276,79 @@ async def run_voice_pipeline(
                     },
                 )
 
-                await ws_manager.send_event(
-                    session_id,
-                    {
-                        "type": "tts_audio",
-                        "data": {
-                            "audio_b64": result.get("audio_response_b64"),
-                            "format": "mp3",
-                            "text": result["response"],
-                        },
-                    },
-                )
-                if result.get("has_audio"):
-                    logger.info(f"[{session_id}] TTS audio sent")
+                # ── Parallel sentence-level TTS ────────────────────────────────
+                # Synthesize all sentences concurrently, then send in order.
+                # Parallel synthesis cuts total TTS wait from N×latency to ~1×latency.
+                if tts_service:
+                    sentences = _split_sentences(result["response"])
+                    logger.info(
+                        f"[{session_id}] TTS: {len(sentences)} sentence(s) — parallel synthesis"
+                    )
+
+                    async def _synth(s: str):
+                        return await tts_service.synthesize_speech(strip_for_tts(s))
+
+                    synth_results = await asyncio.gather(
+                        *[_synth(s) for s in sentences], return_exceptions=True
+                    )
+
+                    any_audio_sent = False
+                    for i, (sentence, audio_or_err) in enumerate(zip(sentences, synth_results)):
+                        if isinstance(audio_or_err, Exception):
+                            logger.warning(
+                                f"[{session_id}] TTS sentence {i+1} error: {audio_or_err}"
+                            )
+                            continue
+                        tts_audio_b64 = base64.b64encode(audio_or_err).decode("utf-8")
+                        await ws_manager.send_event(
+                            session_id,
+                            {
+                                "type": "tts_audio",
+                                "data": {
+                                    "audio_b64": tts_audio_b64,
+                                    "format": "mp3",
+                                    "text": sentence,
+                                },
+                            },
+                        )
+                        any_audio_sent = True
+                        logger.info(
+                            f"[{session_id}] TTS sentence {i+1}/{len(sentences)} sent"
+                        )
+
+                    # If ElevenLabs failed for ALL sentences (e.g. 402 free-plan limit),
+                    # send a null-audio event so the frontend falls back to browser
+                    # speechSynthesis instead of staying completely silent.
+                    if not any_audio_sent:
+                        logger.info(
+                            f"[{session_id}] All ElevenLabs calls failed — "
+                            "sending browser speechSynthesis fallback"
+                        )
+                        await ws_manager.send_event(
+                            session_id,
+                            {
+                                "type": "tts_audio",
+                                "data": {
+                                    "audio_b64": None,
+                                    "format": "mp3",
+                                    "text": result["response"],
+                                },
+                            },
+                        )
                 else:
-                    logger.info(f"[{session_id}] TTS text sent (fallback)")
+                    # No TTS service — send empty audio event so frontend can fall back
+                    await ws_manager.send_event(
+                        session_id,
+                        {
+                            "type": "tts_audio",
+                            "data": {
+                                "audio_b64": None,
+                                "format": "mp3",
+                                "text": result["response"],
+                            },
+                        },
+                    )
+                    logger.info(f"[{session_id}] TTS text sent (fallback — no TTS service)")
 
                 # Persist voice exchange to database
                 try:

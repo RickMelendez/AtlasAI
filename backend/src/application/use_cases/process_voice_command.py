@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from ...application.interfaces.ai_service import AIService
 from ...application.interfaces.voice_service import TTSService, VoiceService
@@ -69,6 +69,7 @@ class ProcessVoiceCommandUseCase:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         screen_context: Optional[str] = None,
         transcription: Optional[str] = None,
+        memories: Optional[List[str]] = None,
     ) -> VoiceCommandResult:
         """
         Procesa un comando de voz y genera una respuesta hablada.
@@ -131,6 +132,8 @@ class ProcessVoiceCommandUseCase:
                 language=self.assistant_state.language,
                 tool_executor=self.tool_executor,
                 session_id=self.assistant_state.session_id,
+                max_tokens=300,  # keep voice responses short for low latency
+                memories=memories or [],
             )
 
             logger.info(f"[VoiceUseCase] 💬 Response: '{response_text[:80]}...'")

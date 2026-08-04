@@ -1,8 +1,8 @@
 """
 Interface para servicios de AI (Port en Clean Architecture).
 
-Define el contrato que deben implementar todos los adapters de AI
-(Claude, OpenAI, etc.) para mantener la arquitectura limpia.
+Define el contrato que debe implementar cualquier adapter de AI
+para mantener la arquitectura limpia.
 """
 
 from abc import ABC, abstractmethod
@@ -13,8 +13,8 @@ class AIService(ABC):
     """
     Interface abstracta para servicios de AI.
 
-    Los adapters concretos (ClaudeAdapter, OpenAIAdapter, etc.)
-    deben implementar estos métodos.
+    Los adapters concretos (p. ej. ClaudeAdapter) deben implementar
+    estos métodos.
     """
 
     @abstractmethod

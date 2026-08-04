@@ -16,6 +16,9 @@ edge-tts>=6.1.9
 # Vision (Claude Haiku via anthropic SDK — no binary deps required)
 Pillow==11.0.0
 
+# Screen capture (server-side screen monitor loop — mss_capture_adapter.py)
+mss==9.0.2
+
 # Browser automation
 playwright==1.49.0
 
@@ -30,6 +33,9 @@ aiosqlite==0.20.0
 pydantic==2.10.5
 pydantic-settings==2.7.1
 python-dotenv==1.0.1
+
+# Auth + rate limiting
+slowapi==0.1.9
 
 # Testing
 pytest==8.3.4

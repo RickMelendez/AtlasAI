@@ -14,21 +14,43 @@ import json
 import logging
 import re
 import subprocess
+import webbrowser
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Patrones de comandos peligrosos que nunca deben ejecutarse
+# Patrones de comandos peligrosos que nunca deben ejecutarse.
+#
+# Esto es defensa en profundidad, NO una sandbox real — un denylist sobre
+# shell=True siempre es evadible (ver CODE-REVIEW.md Security Critical #3).
+# El fix completo requeriría pasar a ejecución argv (sin shell) con allowlist
+# de binarios, lo cual limitaría comandos compuestos/con pipes que el prompt
+# de Atlas ofrece como capacidad legítima ("npm test | tail", etc.) — esa es
+# una decisión de producto, no algo para decidir en silencio en un refactor.
 _DANGEROUS_PATTERNS = [
-    r"rm\s+-rf\s+/",
+    # Borrado destructivo — recursivo/forzado, cualquier target (no solo "/")
+    r"rm\s+-[a-z]*r[a-z]*f|rm\s+-[a-z]*f[a-z]*r",
     r"format\s+[a-z]:",
-    r"del\s+/[sq].*[a-z]:",
+    r"del\s+/[sq]",
+    r"rd\s+/s|rmdir\s+/s",
+    r"remove-item.*-recurse.*-force|remove-item.*-force.*-recurse",
     r"mkfs",
     r"dd\s+if=",
-    r">\s*/dev/sd",
+    r"dd\s+of=",
+    r"diskpart",
+    r">\s*/dev/(sd|nvme)",
     r"shutdown",
     r"reboot",
+    # Fetch remoto → ejecutar directo (patrón clásico de infección)
+    r"(curl|wget|iwr|invoke-webrequest).*\|\s*(sh|bash|zsh|powershell|iex|invoke-expression)",
+    r"invoke-expression|iex\s*\(",
+    # Escalación de privilegios
+    r"\bsudo\b|\brunas\b|start-process.*-verb\s+runas",
+    # Registro de Windows
+    r"reg\s+delete|remove-item.*hklm|remove-item.*hkcu",
+    # Fork bomb
+    r":\(\)\s*\{\s*:\|:&\s*\};:",
 ]
 _DANGEROUS_RE = re.compile("|".join(_DANGEROUS_PATTERNS), re.IGNORECASE)
 
@@ -74,7 +96,9 @@ class ToolExecutor:
         """
         logger.info(f"🔧 Tool call: {tool_name}({list(tool_input.keys())})")
         try:
-            if tool_name == "browse_web":
+            if tool_name == "open_in_default_browser":
+                return self._open_in_default_browser(tool_input)
+            elif tool_name == "browse_web":
                 return await self._browse_web(tool_input)
             elif tool_name == "click_element":
                 return await self._click_element(tool_input)
@@ -103,6 +127,21 @@ class ToolExecutor:
             return json.dumps({"error": str(e)})
 
     # ── Browser tools ──────────────────────────────────────────────────────────
+
+    def _open_in_default_browser(self, inp: dict) -> str:
+        """Open a URL in the user's default system browser (Chrome/Edge with their profile)."""
+        url = inp.get("url", "")
+        if not url:
+            return json.dumps({"error": "url parameter required"})
+        if not url.startswith(("http://", "https://")):
+            url = "https://" + url
+        try:
+            webbrowser.open(url)
+            logger.info(f"🌐 Opened in default browser: {url}")
+            return json.dumps({"success": True, "url": url})
+        except Exception as e:
+            logger.error(f"Failed to open default browser: {e}")
+            return json.dumps({"error": str(e)})
 
     async def _browse_web(self, inp: dict) -> str:
         url = inp.get("url", "")
@@ -209,6 +248,8 @@ class ToolExecutor:
             return json.dumps({"error": str(e)})
 
     def _list_directory(self, inp: dict) -> str:
+        if "path" not in inp:
+            return json.dumps({"error": "path parameter required"})
         path_str = inp.get("path", ".")
         try:
             p = Path(path_str).expanduser()
@@ -236,7 +277,7 @@ class ToolExecutor:
     async def _search_notion(self, inp: dict) -> str:
         query = inp.get("query", "")
         if not self._notion:
-            return json.dumps([{"error": "Notion adapter not configured"}])
+            return json.dumps({"error": "Notion adapter not configured"})
         results = await self._notion.search(query, page_size=inp.get("max_results", 5))
         return json.dumps(results)
 

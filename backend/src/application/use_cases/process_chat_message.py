@@ -44,6 +44,7 @@ class ProcessChatMessageUseCase:
         assistant_state: AssistantState,
         screen_context: Optional[str] = None,
         conversation_history: Optional[list] = None,
+        memories: Optional[list] = None,
     ) -> ChatMessageResult:
         """
         Procesa un mensaje de chat y genera una respuesta.
@@ -74,6 +75,7 @@ class ProcessChatMessageUseCase:
                 language=assistant_state.language,
                 tool_executor=self.tool_executor,
                 session_id=assistant_state.session_id,
+                memories=memories or [],
             )
 
             logger.info(

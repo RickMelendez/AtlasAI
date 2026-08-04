@@ -83,12 +83,16 @@ class WebSocketManager:
         _wake_word_checking: Guard preventing concurrent Whisper calls
     """
 
+    _SILENCE_SECS = 12.0  # seconds of inactivity before auto-sleep
+
     def __init__(self):
         self._session_manager = SessionManager()
         self._voice_busy: Dict[str, bool] = {}
         self._whisper_service = None
+        self._tts_service = None
         self._wake_word_pcm_buffers: Dict[str, bytearray] = {}
         self._wake_word_checking: Dict[str, bool] = {}
+        self._silence_tasks: Dict[str, asyncio.Task] = {}
         logger.info("WebSocket Manager initialized")
 
     @staticmethod
@@ -147,6 +151,30 @@ class WebSocketManager:
             event["data"] = data
         return event
 
+    def _reset_silence_timer(self, session_id: str) -> None:
+        """Reset per-session inactivity timer. Called on any user activity."""
+        old = self._silence_tasks.pop(session_id, None)
+        if old and not old.done():
+            old.cancel()
+        self._silence_tasks[session_id] = asyncio.create_task(
+            self._silence_timeout(session_id)
+        )
+
+    async def _silence_timeout(self, session_id: str) -> None:
+        """Sleep then auto-pause if still in active mode."""
+        try:
+            await asyncio.sleep(self._SILENCE_SECS)
+        except asyncio.CancelledError:
+            return
+        state = self._session_manager.get_state(session_id)
+        if state and state.mode == AssistantMode.ACTIVE:
+            state.pause()
+            await self.send_event(
+                session_id,
+                self._make_event("state_changed", {"new_mode": "paused"}),
+            )
+            logger.info(f"[{session_id}] Auto-sleep after {self._SILENCE_SECS}s silence")
+
     def set_voice_use_case_factory(self, factory: Callable) -> None:
         """
         Inject ProcessVoiceCommandUseCase factory.
@@ -164,6 +192,11 @@ class WebSocketManager:
         self._whisper_service = whisper_service
         self._session_manager.set_whisper_service(whisper_service)
         logger.info("✅ Whisper service registered")
+
+    def set_tts_service(self, tts_service) -> None:
+        """Inject TTS service (ElevenLabs) for consistent voice in fast route responses."""
+        self._tts_service = tts_service
+        logger.info("✅ TTS service registered in WebSocketManager")
 
     def set_tool_executor(self, tool_executor) -> None:
         """Inject ToolExecutor (Playwright, terminal, files, Notion)."""
@@ -212,6 +245,8 @@ class WebSocketManager:
             asyncio.create_task(self.handle_messages(session_id))
             # Start screen capture loop in background
             asyncio.create_task(self._screen_capture_loop(session_id))
+            # Start silence timer
+            self._reset_silence_timer(session_id)
 
             logger.info(f"[{session_id}] Continuous loops started")
 
@@ -224,6 +259,9 @@ class WebSocketManager:
 
     def disconnect(self, session_id: str) -> None:
         """Close connection and stop loops."""
+        old = self._silence_tasks.pop(session_id, None)
+        if old and not old.done():
+            old.cancel()
         self._session_manager.disconnect(session_id)
         logger.info(f"[{session_id}] WebSocket disconnected")
 
@@ -293,6 +331,14 @@ class WebSocketManager:
                         wake_word = (data.get("data", {}) or {}).get(
                             "wake_word", "hey atlas"
                         )
+                        # Wake from sleep if paused
+                        if state and state.mode == AssistantMode.PAUSED:
+                            state.resume()
+                            await self.send_event(
+                                session_id,
+                                self._make_event("state_changed", {"new_mode": "active"}),
+                            )
+                        self._reset_silence_timer(session_id)
                         if state and state.mode not in (AssistantMode.LISTENING,):
                             state.start_listening()
                             await self.send_event(
@@ -314,22 +360,57 @@ class WebSocketManager:
                     elif msg_type == "audio_command":
                         await self._handle_audio_command(session_id, data)
 
+                    # pause / resume: manual sleep control from frontend
+                    elif msg_type == "pause":
+                        state = self._session_manager.get_state(session_id)
+                        if state:
+                            state.pause()
+                            # Cancel silence timer — user explicitly paused
+                            old_task = self._silence_tasks.pop(session_id, None)
+                            if old_task and not old_task.done():
+                                old_task.cancel()
+                            await self.send_event(
+                                session_id,
+                                self._make_event("state_changed", {"new_mode": "paused"}),
+                            )
+                            logger.info(f"[{session_id}] Paused via UI")
+
+                    elif msg_type == "resume":
+                        state = self._session_manager.get_state(session_id)
+                        if state:
+                            state.resume()
+                            self._reset_silence_timer(session_id)
+                            await self.send_event(
+                                session_id,
+                                self._make_event("state_changed", {"new_mode": "active"}),
+                            )
+                            logger.info(f"[{session_id}] Resumed via UI")
+
                     # chat_message: text input
                     elif msg_type == "chat_message":
                         message = data.get("data", {}).get("message", "")
                         if message:
+                            self._reset_silence_timer(session_id)
                             logger.info(f"[{session_id}] Chat: '{message[:60]}'")
                             # Auto-detect language from user text
                             detected_lang = detect_language(message)
                             state = self._session_manager.get_state(session_id)
                             if state:
                                 state.language = detected_lang
+                                # Wake from sleep if needed
+                                if state.mode == AssistantMode.PAUSED:
+                                    state.resume()
+                                    await self.send_event(
+                                        session_id,
+                                        self._make_event("state_changed", {"new_mode": "active"}),
+                                    )
                             # Only inject screen context when message references screen
                             screen_ctx = (
                                 self._session_manager.screen_contexts.get(session_id)
                                 if needs_screen_context(message)
                                 else None
                             )
+                            image_data = data.get("data", {}).get("image_data")
                             await event_bus.emit(
                                 EventType.USER_MESSAGE_RECEIVED.value,
                                 {
@@ -337,6 +418,7 @@ class WebSocketManager:
                                     "message": message,
                                     "timestamp": datetime.now().isoformat(),
                                     "screen_context": screen_ctx,
+                                    "image_data": image_data,
                                 },
                             )
                             await self.send_event(
@@ -548,6 +630,7 @@ class WebSocketManager:
         so the WebSocket receive loop NEVER blocks. Without this, a 10+ second
         call would prevent ping processing and close with 1011 keepalive timeout.
         """
+        self._reset_silence_timer(session_id)
         # Get audio — frontend wraps payload in "data" field
         inner = data.get("data", {}) or {}
         audio_b64 = inner.get("audio", "") or data.get("audio", "")
@@ -605,6 +688,7 @@ class WebSocketManager:
                 voice_use_case_factory=self._session_manager._voice_use_case_factory,
                 tool_executor=self._session_manager._tool_executor,
                 ws_manager=self,
+                tts_service=self._tts_service,
             )
         finally:
             self._voice_busy[session_id] = False
@@ -645,6 +729,11 @@ class WebSocketManager:
             await asyncio.sleep(3)
 
         logger.info(f"[{session_id}] MSS screen capture loop stopped")
+
+    @property
+    def active_connections(self) -> dict:
+        """Shim so websocket.py can check session membership by dict lookup."""
+        return self._session_manager.active_connections
 
     # State management
 

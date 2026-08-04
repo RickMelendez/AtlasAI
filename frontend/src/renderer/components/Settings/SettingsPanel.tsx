@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { X } from 'lucide-react'
+import { withApiKeyHeader } from '../../services/apiKey'
 import './SettingsPanel.css'
 
 export interface SettingsValues {
@@ -36,7 +37,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onSave })
     const fetchSettings = async () => {
       try {
         setLoading(true)
-        const response = await fetch('/api/settings')
+        const response = await fetch('/api/settings', withApiKeyHeader())
         if (!response.ok) throw new Error('Failed to fetch settings')
         const data: SettingsValues = await response.json()
         setValues(data)
@@ -61,11 +62,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, onSave })
       setSaving(true)
       setError(null)
 
-      const response = await fetch('/api/settings', {
+      const response = await fetch('/api/settings', withApiKeyHeader({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(values),
-      })
+      }))
 
       if (!response.ok) throw new Error('Failed to save settings')
 
